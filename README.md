@@ -22,14 +22,17 @@ This project focuses on implementing reinforcement learning algorithms to train 
 ### Installation
 
 1. Clone the repository:
-
+<pre>
 <code>
 ```bash
 git clone https://github.com/DavideEspositoPelella/SuperMario-RL.git
 cd super-mario-rl
 ```
-<code>
+</code>
+</pre>
 
-### Contacts
+
+## Contacts
+
 - **Davide Esposito Pelella:** [Davide Esposito Pelella](https://github.com/DavideEspositoPelella)
 - **Paolo Ferretti:**[pabfr99](https://github.com/pabfr99)
