@@ -22,16 +22,9 @@ This project focuses on implementing reinforcement learning algorithms to train 
 ### Installation
 
 1. Clone the repository:
-<button class="btn" data-clipboard-target="#command">📋 Copy</button>
-
-<div id="command" style="display: none;">
 ```bash
-$ ./run_application.sh
+$ git clone https://github.com/DavideEspositoPelella/SuperMario-RL.git
 ```
-</div>
-<script>
-  new ClipboardJS('.btn');
-</script>
 
 
 ## Contacts
