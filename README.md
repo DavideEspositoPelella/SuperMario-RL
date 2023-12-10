@@ -23,15 +23,15 @@ This project focuses on implementing reinforcement learning algorithms to train 
 
 1. Clone the repository:
 ```bash
-$ git clone https://github.com/DavideEspositoPelella/SuperMario-RL.git
+git clone https://github.com/DavideEspositoPelella/SuperMario-RL.git
 ```
 2. Enter the DDQN folder
 ```bash
-$ cd DDQN
+cd DDQN
 ```
-3. Run training
+3. Run training.
 ```bash
-$ python main.py -t
+python main.py -t -episodes <num_episodes>
 ``` 
 
 ## Contacts
