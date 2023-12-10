@@ -248,7 +248,7 @@ class ResetWrapper(gym.Wrapper):
 # DDQN Policy
 class DDQN(nn.Module):
 
-    def __init__(self):
+    def __init__(self, episodes=40000):
         super(DDQN, self).__init__()
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(self.device)
@@ -294,7 +294,7 @@ class DDQN(nn.Module):
         self.learn_every = 3  # no. of experiences between updates to Q_online
         self.sync_every = 1e4  # no. of experiences between Q_target & Q_online sync
         self.batch_size = 32
-        self.episodes = 40000 # no. of episodes of training (n_episodes)
+        self.episodes = episodes # no. of episodes of training (n_episodes)
 
         # Metric logger
         self.logger = MetricLogger(self.save_dir)
@@ -456,6 +456,7 @@ class DDQN(nn.Module):
         rewards = []
         episodes = self.episodes
         print("Starting...")
+        print(f"Training for: {episodes} episodes\n")
         for e in tqdm(range(episodes)):
 
             reset_output = self.env.reset()
