@@ -47,9 +47,9 @@ def evaluate(env=None, n_episodes=5, render=False):
     print('Mean Reward:', np.mean(rewards))
 
 # Train function
-def train(render=False):
+def train(render=False, episodes=40000):
     # Implementation for training the model
-    agent = DDQN()
+    agent = DDQN(episodes=episodes)
     agent.train()
     agent.save()
 
@@ -59,10 +59,11 @@ def main():
     parser.add_argument('--render', action='store_true')
     parser.add_argument('-t', '--train', action='store_true')
     parser.add_argument('-e', '--evaluate', action='store_true')
+    parser.add_argument('--episodes', type=int, default=40000, help='Number of episodes to train')
     args = parser.parse_args()
 
     if args.train:
-        train(render=args.render)
+        train(render=args.render, episodes=args.episodes)
 
     if args.evaluate:
         evaluate(render=args.render)
