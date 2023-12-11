@@ -21,11 +21,6 @@ from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage
 from tensordict import TensorDict
 
 
-
-
-
-
-##################################################################################################
 class Net(nn.Module):
     def __init__(self, 
                  num_channels: int,
@@ -112,7 +107,7 @@ class DDQNetwork(nn.Module):
         elif model == 'target':
             return self.target_net(input)
         
-#####################################################################
+
 class SkipFrame(gym.Wrapper):
     def __init__(self, 
                  env, 
@@ -170,7 +165,7 @@ class ResetWrapper(gym.Wrapper):
         if isinstance(obs, np.ndarray) and len(obs.shape) > 1:
             return [(single_obs, {}) for single_obs in obs], info
         return obs, info
-##################################################################################################
+    
 
 class Config:
     def __init__(self, 
@@ -231,8 +226,8 @@ class Config:
         self.sync_freq = sync_freq
         self.episodes = episodes
 
+
 class DDQNPrioritized(nn.Module):
-    continuous = False # you can change this
 
     def __init__(self, episodes):
         super(DDQNPrioritized, self).__init__()
@@ -277,7 +272,7 @@ class DDQNPrioritized(nn.Module):
         # initialize the optimizer and the loss function
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)
         self.loss_fn = torch.nn.SmoothL1Loss()
-
+        self.curr_step = 0
         #TODO add logging
                 
     def make_env(self, 
