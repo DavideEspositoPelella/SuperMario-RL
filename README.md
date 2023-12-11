@@ -46,15 +46,15 @@ source venv/bin/activate # On Windows use 'venv/Scripts/activate'
 conda create -n supermario_rl python=3.9
 conda activate supermario_rl
 ```
-4. Install dependencies.
+5. Install dependencies.
 ```bash
 pip install --no-cache-dir -r requirements.txt
 ```
-5. Navigate the model folder (available 'DDQN', 'A3C', #TODO)
+6. Navigate the model folder (available 'DDQN', 'A3C', #TODO)
 ```bash
 cd DDQN
 ```
-6. Run training
+7. Run training
 ```bash
 python3 main.py -t --episodes <num_episodes>
 ```
