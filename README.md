@@ -44,7 +44,7 @@ conda activate supermario_rl
 ```
 4. Install dependencies.
 ```bash
-pip install -r requirements.txt
+pip install --no-cache-dir -r requirements.txt
 ```
 5. Navigate the model folder (available 'DDQN', 'A3C', #TODO)
 ```bash
