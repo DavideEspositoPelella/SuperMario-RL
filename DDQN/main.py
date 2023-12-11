@@ -8,14 +8,11 @@ from nes_py.wrappers import JoypadSpace
 from gym.wrappers import FrameStack
 import numpy as np
 from DDQN import DDQN
-
-# Import the Policy from DDQN.py (assuming it's in the same directory)
-from DDQN import MarioNet, SkipFrame, GrayScaleObservation, ResizeObservation
+from DDQN_PER import DDQNPrioritized
 
 # Evaluate function
 def evaluate(env=None, n_episodes=5, render=False):
     # Initialize the environment and model
-    env_ID = "SuperMarioBros-1-1-v0"
     env_ID = "SuperMarioBros-1-1-v0"
     if gym.__version__ < '0.26':
         env = gym_super_mario_bros.make(env_ID,
@@ -49,7 +46,10 @@ def evaluate(env=None, n_episodes=5, render=False):
 # Train function
 def train(render=False, episodes=40000):
     # Implementation for training the model
-    agent = DDQN(episodes=episodes)
+    # agent = DDQN(episodes=episodes)
+    # agent.train()
+    # agent.save()
+    agent = DDQNPrioritized(episodes=episodes)
     agent.train()
     agent.save()
 

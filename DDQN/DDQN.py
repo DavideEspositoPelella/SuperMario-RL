@@ -250,7 +250,6 @@ class DDQN(nn.Module):
 
     def __init__(self, episodes=40000):
         super(DDQN, self).__init__()
-        self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
         print(self.device)
 
         # Initialize environment
