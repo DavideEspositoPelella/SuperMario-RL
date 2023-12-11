@@ -1,0 +1,8 @@
+gym
+gym-super-mario-bros==7.4.0
+numpy
+torch
+torchvision
+matplotlib
+tensordict
+torchrl

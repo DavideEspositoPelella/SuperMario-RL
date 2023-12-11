@@ -17,7 +17,7 @@ This project focuses on implementing reinforcement learning algorithms to train 
 ### Prerequisites
 
 - Python 3
-- Dependencies OpenAI Gym, PyTorch
+- All required packages are listed in the `requirements.txt` file.
 
 ### Installation
 
@@ -25,14 +25,30 @@ This project focuses on implementing reinforcement learning algorithms to train 
 ```bash
 git clone https://github.com/DavideEspositoPelella/SuperMario-RL.git
 ```
-2. Enter the DDQN folder
+2. Navigate the DDQN folder
 ```bash
-cd DDQN
+cd SuperMario-RL/DDQN
 ```
-3. Run training.
+3. Set up a Python Environment:
+
+- Using a virtual environment (optional but recommended)
 ```bash
-python main.py -t -episodes <num_episodes>
-``` 
+python -m venv venv
+source venv/bin/activate # On Windows use 'venv/Scripts/activate' 
+```
+- Using Conda 
+```bash
+conda create -n supermario_rl python=3.9
+conda activate supermario_rl
+```
+3. Install dependencies.
+```bash
+pip install -r requirements.txt
+```
+4. Run training
+```bash
+python3 main.py -t -episodes <num_episodes>
+```
 
 ## Contacts
 
