@@ -29,11 +29,15 @@ git clone https://github.com/DavideEspositoPelella/SuperMario-RL.git
 ```bash
 cd SuperMario-RL
 ```
-3. Set up a Python Environment:
+3. Install tkinter (required for certain graphical operations in Python):
+```bash
+sudo apt-get install python3.8-tk
+```
+4. Set up a Python Environment:
 
 - Using a virtual environment (optional but recommended)
 ```bash
-sudo apt install python3.9-venv
+sudo apt install python3.8-venv
 python3 -m venv venv
 source venv/bin/activate # On Windows use 'venv/Scripts/activate' 
 ```
@@ -52,7 +56,7 @@ cd DDQN
 ```
 6. Run training
 ```bash
-python3 main.py -t -episodes <num_episodes>
+python3 main.py -t --episodes <num_episodes>
 ```
 
 ## Contacts
