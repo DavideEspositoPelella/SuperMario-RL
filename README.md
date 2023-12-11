@@ -43,7 +43,7 @@ source venv/bin/activate # On Windows use 'venv/Scripts/activate'
 ```
 - Using Conda 
 ```bash
-conda create -n supermario_rl python=3.9
+conda create -n supermario_rl python=3.8
 conda activate supermario_rl
 ```
 5. **Install dependencies**.
