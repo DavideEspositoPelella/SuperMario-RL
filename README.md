@@ -25,15 +25,16 @@ This project focuses on implementing reinforcement learning algorithms to train 
 ```bash
 git clone https://github.com/DavideEspositoPelella/SuperMario-RL.git
 ```
-2. Navigate the DDQN folder
+2. Navigate the SuperMario-RL folder
 ```bash
-cd SuperMario-RL/DDQN
+cd SuperMario-RL
 ```
 3. Set up a Python Environment:
 
 - Using a virtual environment (optional but recommended)
 ```bash
-python -m venv venv
+sudo apt install python3.9-venv
+python3 -m venv venv
 source venv/bin/activate # On Windows use 'venv/Scripts/activate' 
 ```
 - Using Conda 
@@ -41,11 +42,15 @@ source venv/bin/activate # On Windows use 'venv/Scripts/activate'
 conda create -n supermario_rl python=3.9
 conda activate supermario_rl
 ```
-3. Install dependencies.
+4. Install dependencies.
 ```bash
 pip install -r requirements.txt
 ```
-4. Run training
+5. Navigate the model folder (available 'DDQN', 'A3C', #TODO)
+```bash
+cd DDQN
+```
+6. Run training
 ```bash
 python3 main.py -t -episodes <num_episodes>
 ```
