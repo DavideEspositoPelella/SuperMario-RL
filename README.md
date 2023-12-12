@@ -50,10 +50,6 @@ conda activate supermario_rl
 ```bash
 pip install --no-cache-dir -r requirements.txt
 ```
-6. **Run training**
-```bash
-python3 main.py -t --episodes <num_episodes> --algorithm <algorithm>
-```
 
 ## **Executing**
 You can run the program with various options
