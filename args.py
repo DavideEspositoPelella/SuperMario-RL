@@ -30,6 +30,11 @@ def get_args():
     parser.add_argument('--save-dir', 
                         default='./trained_models/',
                         help='Where to save agent logs, Default to ./trained_models/')
+    parser.add_argument('--model', 
+                        type=str, 
+                        default='mario_net_0.chkpt', 
+                        help='The model to continue training from')
+
     
     args = parser.parse_args()
 

@@ -43,7 +43,8 @@ def evaluate(algorithm: str='ddqn',
                         prioritized=True)
         else:
             raise ValueError("Invalid algorithm selected")
-        agent.load()
+    
+        agent.load(args.model)
         agent.evaluate(episodes)
     
 
@@ -65,6 +66,9 @@ def train(algorithm: str='ddqn',
                      prioritized=True)
     else:
         raise ValueError("Invalid algorithm selected")
+    
+    if args.model != 'False':
+        agent.load(args.model)
     agent.train()
     agent.save()
 

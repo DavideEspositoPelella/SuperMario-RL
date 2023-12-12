@@ -278,13 +278,14 @@ class DDQN(nn.Module):
         self.curr_step = 0 #TODO remove this
         
         if self.prioritized:
-            self.save_dir  = Path("checkpoints/ddqn_per") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-            self.load_dir  = Path("checkpoints/ddqn_per")
+            #self.save_dir  = Path("checkpoints/ddqn_per") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+            self.dir  = Path("checkpoints/ddqn_per")
         else:
-            self.save_dir  = Path("checkpoints/ddqn") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-            self.load_dir  = Path("checkpoints/ddqn")
-        self.save_dir.mkdir(parents=True)
-        self.save_every = 500
+            #self.save_dir  = Path("checkpoints/ddqn") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+            self.dir  = Path("checkpoints/ddqn")
+        self.dir.mkdir(parents=True, exist_ok=True)
+        self.save_every = 100
+
         #TODO add logging
                 
     def make_env(self, 
@@ -424,6 +425,7 @@ class DDQN(nn.Module):
     def train(self):
         rewards = []
         episodes = self.config.episodes
+
         print("Starting...")
         print(f"Training for: {episodes} episodes\n")
         for e in tqdm(range(episodes)):
@@ -465,8 +467,7 @@ class DDQN(nn.Module):
         return
     
     def save(self):
-        #save_path = (self.save_dir / f"mario_net_{int(self.curr_step // self.save_every)}.chkpt")
-        save_path = (self.save_dir / f"mario_net_{self.ep}.chkpt")
+        save_path = (self.dir / f"mario_net_{self.ep}.chkpt")
         torch.save(
             dict(model=self.net.state_dict(), 
                  exploration_rate=self.config.exploration_rate), 
@@ -474,19 +475,18 @@ class DDQN(nn.Module):
         print(f"MarioNet saved to {save_path} at step {self.curr_step}")
 
     # TODO more modular loading
-    def load(self):
-        if self.prioritized:
-            load_path = self.load_dir / '2023-12-12T16-57-15/mario_net_6.chkpt'
-        else:
-            load_path = self.load_dir / '2023-12-12T17-03-43/mario_net_8.chkpt'
+    def load(self, model_path: str=None):
+        #load_path = self.dir / 'mario_net_100.chkpt'
+        load_path = self.dir / model_path
+        
         if not load_path.exists():
-            raise ValueError(f"{load_path} does not exist")
+                raise ValueError(f"{load_path} does not exist")
 
         ckp = torch.load(load_path, map_location=self.device)
         exploration_rate = ckp.get('exploration_rate')
         state_dict = ckp.get('model')
 
-        print(f"Loading model at {load_path} with exploration rate {exploration_rate}")
+        print(f"\nLoading model at    {load_path}   with exploration rate {exploration_rate}")
         self.net.load_state_dict(state_dict)
         self.exploration_rate = exploration_rate
 
