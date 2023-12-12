@@ -10,6 +10,7 @@ from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from nes_py.wrappers import JoypadSpace
 from gym.wrappers import FrameStack
 import numpy as np
+import torch
 
 from tensorboardX import SummaryWriter
 
