@@ -278,15 +278,16 @@ class DDQN(nn.Module):
         self.curr_step = 0 #TODO remove this
         
         if self.prioritized:
-            #self.save_dir  = Path("checkpoints/ddqn_per") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
             self.dir  = Path("checkpoints/ddqn_per")
         else:
-            #self.save_dir  = Path("checkpoints/ddqn") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
             self.dir  = Path("checkpoints/ddqn")
         self.dir.mkdir(parents=True, exist_ok=True)
         self.save_every = 100
 
         #TODO add logging
+        self.print_every = 20
+
+        
                 
     def make_env(self, 
                  multi=True, 
@@ -387,11 +388,6 @@ class DDQN(nn.Module):
         if self.curr_step % self.config.sync_freq == 0:
             self.net.target_net.load_state_dict(self.net.online_net.state_dict())
 
-
-        #if self.curr_step % self.save_every == 0:
-        #if self.ep % self.save_every == 0:
-        #    self.save()
-
         if self.curr_step < self.config.burn_in:
             return None, None
 
@@ -460,8 +456,14 @@ class DDQN(nn.Module):
                     break
 
             rewards.append(total_reward)
+            
+            if self.ep % self.print_every == 0:
+                print(f"\nEpisode: {self.ep} Mean reward: {np.mean(rewards)}")
+
+            
             if self.ep % self.save_every == 0:
                 self.save()
+
 
         print("Training complete.\n")
         return
