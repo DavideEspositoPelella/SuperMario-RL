@@ -234,9 +234,6 @@ class DDQN(nn.Module):
                  prioritized: bool=True):
         super(DDQN, self).__init__()
         # initialize the configuration settings
-        self.save_dir  = Path("checkpoints") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
-        self.save_dir.mkdir(parents=True)
-        self.save_every = 5e5
         self.config = Config(multi_env = False,
                              num_envs=2,
                              skip_frame = 2,
@@ -279,6 +276,15 @@ class DDQN(nn.Module):
         # initialize the optimizer and the loss function
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)
         self.curr_step = 0 #TODO remove this
+        
+        if self.prioritized:
+            self.save_dir  = Path("checkpoints/ddqn_per") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+            self.load_dir  = Path("checkpoints/ddqn_per")
+        else:
+            self.save_dir  = Path("checkpoints/ddqn") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
+            self.load_dir  = Path("checkpoints/ddqn")
+        self.save_dir.mkdir(parents=True)
+        self.save_every = 500
         #TODO add logging
                 
     def make_env(self, 
@@ -380,8 +386,10 @@ class DDQN(nn.Module):
         if self.curr_step % self.config.sync_freq == 0:
             self.net.target_net.load_state_dict(self.net.online_net.state_dict())
 
-        if self.curr_step % self.save_every == 0:
-            self.save()
+
+        #if self.curr_step % self.save_every == 0:
+        #if self.ep % self.save_every == 0:
+        #    self.save()
 
         if self.curr_step < self.config.burn_in:
             return None, None
@@ -422,6 +430,8 @@ class DDQN(nn.Module):
             self.curr_step = 0 #TODO remove this
             reset_output = self.env.reset()
 
+            self.ep = e
+
             # Handle multi-environment
             if self.config.multi_env:
                 # Extract the first observation from each sub-environment
@@ -448,12 +458,15 @@ class DDQN(nn.Module):
                     break
 
             rewards.append(total_reward)
+            if self.ep % self.save_every == 0:
+                self.save()
 
         print("Training complete.\n")
         return
     
     def save(self):
-        save_path = (self.save_dir / f"mario_net_{int(self.curr_step // self.save_every)}.chkpt")
+        #save_path = (self.save_dir / f"mario_net_{int(self.curr_step // self.save_every)}.chkpt")
+        save_path = (self.save_dir / f"mario_net_{self.ep}.chkpt")
         torch.save(
             dict(model=self.net.state_dict(), 
                  exploration_rate=self.config.exploration_rate), 
@@ -462,7 +475,10 @@ class DDQN(nn.Module):
 
     # TODO more modular loading
     def load(self):
-        load_path = Path('checkpoints/2023-12-12T14-10-26/mario_net_251.chkpt') 
+        if self.prioritized:
+            load_path = self.load_dir / '2023-12-12T16-57-15/mario_net_6.chkpt'
+        else:
+            load_path = self.load_dir / '2023-12-12T17-03-43/mario_net_8.chkpt'
         if not load_path.exists():
             raise ValueError(f"{load_path} does not exist")
 
@@ -482,7 +498,10 @@ class DDQN(nn.Module):
     def evaluate(self, episodes: int=5) -> None:
         env = self.make_env(multi=False)
         rewards = []
-        for episode in range(episodes):
+
+        print('\nEvaluating for 5 episodes')
+        print('Algorithm: {}'.format('DDQN_PER' if self.prioritized else 'DDQN'))
+        for episode in tqdm(range(5)):
             total_reward = 0
             done = False
             state, _ = env.reset()

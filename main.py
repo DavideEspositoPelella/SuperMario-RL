@@ -24,7 +24,7 @@ except OSError:
 
 
 def evaluate(algorithm: str='ddqn',
-             episodes: int=20000) -> None:
+             episodes: int=5) -> None:
 
     
     """
@@ -32,7 +32,7 @@ def evaluate(algorithm: str='ddqn',
 
     Args:
         - algorithm (str): The algorithm to use to train the agent. Available options are 'ddqn', 'ddqn_per', 'a3c', 'dueling_ddqn', and 'sarsa'. Defaults to 'ddqn'.
-        - episodes (int): The number of episodes to train for. Defaults to 20000.
+        - episodes (int): The number of episodes to train for. Defaults to 5.
     """
     with torch.no_grad():
         if algorithm == 'ddqn':
