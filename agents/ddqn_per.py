@@ -460,11 +460,39 @@ class DDQN(nn.Module):
                  save_path)
         print(f"MarioNet saved to {save_path} at step {self.curr_step}")
 
+    # TODO more modular loading
     def load(self):
-        self.load_state_dict(torch.load('model.pt'), map_location=self.device)
+        load_path = Path('checkpoints/2023-12-12T14-10-26/mario_net_251.chkpt') 
+        if not load_path.exists():
+            raise ValueError(f"{load_path} does not exist")
+
+        ckp = torch.load(load_path, map_location=self.device)
+        exploration_rate = ckp.get('exploration_rate')
+        state_dict = ckp.get('model')
+
+        print(f"Loading model at {load_path} with exploration rate {exploration_rate}")
+        self.net.load_state_dict(state_dict)
+        self.exploration_rate = exploration_rate
 
     def to(self, device):
         ret = super().to(device)
         ret.device = device
         return ret
+
+    def evaluate(self, episodes: int=5) -> None:
+        env = self.make_env(multi=False)
+        rewards = []
+        for episode in range(episodes):
+            total_reward = 0
+            done = False
+            state, _ = env.reset()
+            while not done:
+                action = self.act(state)
+                state, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                total_reward += reward
+
+            rewards.append(total_reward)
+
+        print('Mean Reward:', np.mean(rewards))
 
