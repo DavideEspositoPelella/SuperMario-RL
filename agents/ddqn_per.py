@@ -476,7 +476,9 @@ class DDQN(nn.Module):
 
     # TODO more modular loading
     def load(self, model_path: str=None):
-        #load_path = self.dir / 'mario_net_100.chkpt'
+        if model_path == "mario_net_0.chkpt":
+            return
+        
         load_path = self.dir / model_path
         
         if not load_path.exists():
