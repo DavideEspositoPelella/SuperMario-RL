@@ -61,7 +61,9 @@ python3 main.py [OPTIONS]
 - '-t', '--train': Enable training mode.
 - '-e', '--evaluate': Enable evaluation mode.
 - 'algorithm <algorithm>': Specify the algorithm to use. Options are ddqn, ddqn_per, a3c, sarsa Default is ddqn.
-- '--episodes <num_episodes>': Set the number of episodes for training. Default is 20000.
+- '--episodes <num_episodes>': Set the number of episodes:
+    - Default for training is 20000;
+    - Default for evaluate is 5.
 - ' --log-interval <interval>': Interval for logging information. Default is 10.
 - '--save-interval <interval>': Interval for saving the model. Default is 100.
 - '--log-dir <path>': Directory to save logs. Default is ./logs/.
