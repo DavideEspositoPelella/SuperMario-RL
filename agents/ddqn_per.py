@@ -17,7 +17,7 @@ import gym_super_mario_bros
 
 from nes_py.wrappers import JoypadSpace
 
-from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage
+from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage, TensorDictReplayBuffer
 from tensordict import TensorDict
 
 
@@ -227,10 +227,12 @@ class Config:
         self.episodes = episodes
 
 
-class DDQNPrioritized(nn.Module):
+class DDQN(nn.Module):
 
-    def __init__(self, episodes):
-        super(DDQNPrioritized, self).__init__()
+    def __init__(self, 
+                 episodes: int=10000, 
+                 prioritized: bool=True):
+        super(DDQN, self).__init__()
         # initialize the configuration settings
         self.save_dir  = Path("checkpoints") / datetime.datetime.now().strftime("%Y-%m-%dT%H-%M-%S")
         self.save_dir.mkdir(parents=True)
@@ -252,6 +254,7 @@ class DDQNPrioritized(nn.Module):
                              update_freq=3,
                              sync_freq=1000,
                              episodes=episodes)
+        self.prioritized = prioritized
         # create the environment
         self.env = self.make_env(multi=self.config.multi_env,
                                  num_envs=self.config.num_envs)
@@ -262,24 +265,25 @@ class DDQNPrioritized(nn.Module):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.net = DDQNetwork(input_dim=self.state_dim, 
                               output_dim=self.num_actions).float().to(self.device)
-        # initialize the prioritized replay buffer
-        self.buffer = TensorDictPrioritizedReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size),
-                                                        alpha=self.config.alpha, 
-                                                        beta=self.config.beta,
-                                                        priority_key='td_error',
-                                                        eps=self.config.epsilon_buffer,
-                                                        batch_size=self.config.batch_size)
+        if self.prioritized:
+            # initialize the prioritized replay buffer
+            self.buffer = TensorDictPrioritizedReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size),
+                                                            alpha=self.config.alpha, 
+                                                            beta=self.config.beta,
+                                                            priority_key='td_error',
+                                                            eps=self.config.epsilon_buffer,
+                                                            batch_size=self.config.batch_size)
+        else:
+            self.buffer = TensorDictReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size))
+            self.loss_fn = torch.nn.SmoothL1Loss()
         # initialize the optimizer and the loss function
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)
-        self.loss_fn = torch.nn.SmoothL1Loss()
-        self.curr_step = 0
+        self.curr_step = 0 #TODO remove this
         #TODO add logging
                 
     def make_env(self, 
                  multi=True, 
-                 num_envs=2, 
-                 env_id="SuperMarioBros-1-1-v0", 
-                 stages=['1-4', '2-4', '3-4', '4-4']):
+                 num_envs=2):
         if multi:
             env = gym.vector.make('SuperMarioBrosRandomStages-v3', 
                                   stages=['1-4', '2-4', '3-4', '4-4'], 
@@ -376,8 +380,8 @@ class DDQNPrioritized(nn.Module):
         if self.curr_step % self.config.sync_freq == 0:
             self.net.target_net.load_state_dict(self.net.online_net.state_dict())
 
-        # if self.curr_step % self.save_every == 0:
-            # self.save() #TODO add this
+        if self.curr_step % self.save_every == 0:
+            self.save()
 
         if self.curr_step < self.config.burn_in:
             return None, None
@@ -396,17 +400,18 @@ class DDQNPrioritized(nn.Module):
             next_Q = self.net(next_state, model="target")[
                 np.arange(0, self.config.batch_size), best_action]
             q_tgt = (reward + (1 - done.float()) * self.config.gamma * next_Q).float()
-        
-        td_error = q_tgt - q_est
-        priority = td_error.abs() + self.config.epsilon_buffer
-        importance_sampling_weights = torch.FloatTensor(info["_weight"]).reshape(-1, 1).to(self.device)
-        loss = (importance_sampling_weights * td_error.pow(2)).mean()
-        self.buffer.update_priority(info["index"], priority)
+        td_error = q_tgt - q_est 
+        if self.prioritized:
+            priority = td_error.abs() + self.config.epsilon_buffer
+            importance_sampling_weights = torch.FloatTensor(info["_weight"]).reshape(-1, 1).to(self.device)
+            loss = (importance_sampling_weights * td_error.pow(2)).mean()
+            self.buffer.update_priority(info["index"], priority)
+        else:
+            loss = self.loss_fn(q_est, q_tgt)
         self.optimizer.zero_grad()
         loss.backward()
         self.optimizer.step()
-
-        return td_error, loss
+        return td_error, loss.item()
         
     def train(self):
         rewards = []

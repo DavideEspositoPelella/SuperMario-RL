@@ -1,14 +1,25 @@
+import os
 
-# Import necessary libraries
-import argparse
+from args import get_args
+from agents.ddqn_per import DDQN
+
+
 import gym
 import gym_super_mario_bros
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from nes_py.wrappers import JoypadSpace
 from gym.wrappers import FrameStack
 import numpy as np
-from DDQN import DDQN
-from DDQN_PER import DDQNPrioritized
+
+from tensorboardX import SummaryWriter
+
+
+args = get_args()
+
+try:
+    os.makedirs(args.log_dir)
+except OSError:
+    pass
 
 #TODO the evaluation function must be updated to work with the new environment
 def evaluate(algorithm: str='ddqn',
@@ -32,15 +43,11 @@ def evaluate(algorithm: str='ddqn',
                                         render_mode='human', 
                                         apply_api_compatibility=True)
     if algorithm == 'ddqn':
-        agent = DDQN(episodes=episodes)
+        agent = DDQN(episodes=episodes, 
+                     prioritized=False)
     elif algorithm == 'ddqn_per':
-        agent = DDQNPrioritized(episodes=episodes)
-    # elif algorithm == 'a3c':
-    #     agent = A3C(...)
-    # elif algorithm == 'dueling_ddqn':
-    #     agent = DuelingDDQN(...)
-    # elif algorithm == 'sarsa':
-    #     agent = SARSA(...)
+        agent = DDQN(episodes=episodes, 
+                     prioritized=True)
     else:
         raise ValueError("Invalid algorithm selected")
     
@@ -70,35 +77,18 @@ def train(algorithm: str='ddqn',
         - episodes (int): The number of episodes to train for. Defaults to 20000.
     """
     if algorithm == 'ddqn':
-        agent = DDQN(episodes=episodes)
+        agent = DDQN(episodes=episodes, 
+                     prioritized=False)
     elif algorithm == 'ddqn_per':
-        agent = DDQNPrioritized(episodes=episodes)
-    # elif algorithm == 'a3c':
-    #     agent = A3C(episodes=episodes)
-    # elif algorithm == 'dueling_ddqn':
-    #     agent = DuelingDDQN(episodes=episodes)
-    # elif algorithm == 'sarsa':
-    #     agent = SARSA(episodes=episodes)
+        agent = DDQN(episodes=episodes, 
+                     prioritized=True)
     else:
         raise ValueError("Invalid algorithm selected")
     agent.train()
     agent.save()
 
 def main():
-    parser = argparse.ArgumentParser(description='Run training and evaluation')
-    parser.add_argument('--render', action='store_true')
-    parser.add_argument('-t', '--train', action='store_true')
-    parser.add_argument('-e', '--evaluate', action='store_true')
-    parser.add_argument('--episodes', 
-                        type=int, 
-                        default=20000, 
-                        help='Number of episodes to train')
-    parser.add_argument('--algorithm', 
-                        type=str, 
-                        default='ddqn', 
-                        choices=['ddqn', 'ddqn_per', 'dueling_ddqn' 'a3c', 'sarsa'], 
-                        help='The algorithm to use')
-    args = parser.parse_args()
+    tb_writer = SummaryWriter(log_dir=args.save_dir)
     if args.train:
         train(algorithm=args.algorithm,
               episodes=args.episodes)
