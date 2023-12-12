@@ -88,7 +88,6 @@ python3 main.py -t --episodes 5000 --algorithm ddqn_per
 python3 main.py -e
 ```
 
-```
 ## Contacts
 
 - **Davide Esposito Pelella:** [Davide Esposito Pelella](https://github.com/DavideEspositoPelella)
