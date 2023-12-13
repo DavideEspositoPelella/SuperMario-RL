@@ -24,9 +24,8 @@ except OSError:
 
 
 def evaluate(algorithm: str='ddqn',
-             episodes: int=5) -> None:
-
-    
+             episodes: int=5,
+             icm: bool=False) -> None:
     """
     Evaluate the agent with the specified algorithm for the specified number of episodes.
 
@@ -37,10 +36,12 @@ def evaluate(algorithm: str='ddqn',
     with torch.no_grad():
         if algorithm == 'ddqn':
             agent = DDQN(episodes=episodes, 
-                        prioritized=False)
+                        prioritized=False,
+                        icm=icm)
         elif algorithm == 'ddqn_per':
             agent = DDQN(episodes=episodes, 
-                        prioritized=True)
+                        prioritized=True,
+                        icm=icm)
         else:
             raise ValueError("Invalid algorithm selected")
     
@@ -50,7 +51,8 @@ def evaluate(algorithm: str='ddqn',
 
 
 def train(algorithm: str='ddqn', 
-          episodes: int=20000) -> None:
+          episodes: int=20000,
+          icm: bool=False) -> None:
     """
     Train the agent with the specified algorithm for the specified number of episodes.
 
@@ -60,10 +62,12 @@ def train(algorithm: str='ddqn',
     """
     if algorithm == 'ddqn':
         agent = DDQN(episodes=episodes, 
-                     prioritized=False)
+                     prioritized=False,
+                     icm=icm)
     elif algorithm == 'ddqn_per':
         agent = DDQN(episodes=episodes, 
-                     prioritized=True)
+                     prioritized=True,
+                     icm=icm)
     else:
         raise ValueError("Invalid algorithm selected")
     
@@ -76,10 +80,12 @@ def main():
     tb_writer = SummaryWriter(log_dir=args.save_dir)
     if args.train:
         train(algorithm=args.algorithm,
-              episodes=args.episodes)
+              episodes=args.episodes,
+              icm=args.icm)
     if args.evaluate:
         evaluate(algorithm=args.algorithm, 
-                 episodes=args.episodes)
+                 episodes=args.episodes,
+                 icm=args.icm)
 
 
 if __name__ == '__main__':

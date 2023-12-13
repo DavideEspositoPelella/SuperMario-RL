@@ -1,7 +1,6 @@
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
-import datetime
 
 import torch
 import torch.nn as nn
@@ -19,6 +18,9 @@ from nes_py.wrappers import JoypadSpace
 
 from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage, TensorDictReplayBuffer
 from tensordict import TensorDict
+
+from agents.icm import embedding, inverseModel, forwardModel
+
 
 
 class Net(nn.Module):
@@ -185,7 +187,11 @@ class Config:
                  lr: float=0.0001,
                  update_freq: int=3, 
                  sync_freq: int=1000, 
-                 episodes: int=1000) -> None:
+                 episodes: int=1000,
+                 feature_size: int=512,
+                 n_scaling: float=0.5,
+                 beta_icm: float = 0.5,
+                 gamma_icm: float = 0.5) -> None:
         """
         Initializes the configuration settings.
 
@@ -207,6 +213,10 @@ class Config:
             - update_freq (int): Frequency of updating the online network. Default to 3.
             - sync_freq (int): Frequency of updating the target network. Default to 1000.
             - episodes (int): Maximum number of episodes. Default to 1000.
+            - feature_size (int): Size of the feature embedding. Default to 512.
+            - n_scaling (float): Weighs the importance of the policy loss against the intrinsic reward. Default to 0.5.
+            - beta_icm (float): Weighs the importance of the forward loss against the inverse loss. Default to 0.5.
+            - gamma_icm (float): Discount factor for the intrinsic reward. Default to 0.5.
         """
         self.multi_env = multi_env
         self.num_envs = num_envs
@@ -225,13 +235,18 @@ class Config:
         self.update_freq = update_freq
         self.sync_freq = sync_freq
         self.episodes = episodes
+        self.feature_size = feature_size
+        self.n_scaling = n_scaling
+        self.beta_icm = beta_icm
+        self.gamma_icm = gamma_icm
 
 
 class DDQN(nn.Module):
 
     def __init__(self, 
                  episodes: int=10000, 
-                 prioritized: bool=True):
+                 prioritized: bool=True,
+                 icm: bool=False):
         super(DDQN, self).__init__()
         # initialize the configuration settings
         self.config = Config(multi_env = False,
@@ -252,6 +267,7 @@ class DDQN(nn.Module):
                              sync_freq=1000,
                              episodes=episodes)
         self.prioritized = prioritized
+        self.icm = icm
         # create the environment
         self.env = self.make_env(multi=self.config.multi_env,
                                  num_envs=self.config.num_envs)
@@ -278,11 +294,38 @@ class DDQN(nn.Module):
         self.curr_step = 0 #TODO remove this
         
         if self.prioritized:
-            self.dir  = Path("checkpoints/ddqn_per")
+            if self.icm:
+                self.dir  = Path("checkpoints/ddqn_per_icm")
+            else:
+                self.dir  = Path("checkpoints/ddqn_per")
         else:
-            self.dir  = Path("checkpoints/ddqn")
+            if self.icm:
+                self.dir  = Path("checkpoints/ddqn_icm")
+            else:
+                self.dir  = Path("checkpoints/ddqn")
         self.dir.mkdir(parents=True, exist_ok=True)
         self.save_every = 100
+
+        # Initialize forwand and inverse models
+        if self.icm:
+            self.feature_size = self.config.feature_size
+            self.beta = self.config.beta_icm
+            self.gamma = self.config.gamma_icm
+            self.n_scaling = self.config.n_scaling
+
+            self.state_embedding = embedding(num_channels=4, output_dim=self.feature_size).float().to(self.device)
+            self.state_embedding_optimizer = torch.optim.Adam(self.state_embedding.parameters(), lr=self.config.lr)
+            self.state_embedding_loss_fn = torch.nn.MSELoss()
+
+            self.inverse_model = inverseModel(feature_size=self.feature_size, num_actions=self.num_actions).float().to(self.device)
+            self.forward_model = forwardModel(action_dim=self.num_actions, out_channels=512).float().to(self.device)
+
+            self.inverse_optimizer = torch.optim.Adam(self.inverse_model.parameters(), lr=self.config.lr)
+            self.forward_optimizer = torch.optim.Adam(self.forward_model.parameters(), lr=self.config.lr)
+
+            self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
+            self.forward_loss_fn = torch.nn.MSELoss()
+
 
         #TODO add logging
         self.print_every = 20
@@ -383,6 +426,16 @@ class DDQN(nn.Module):
         state, next_state, action, reward, done = (batch.get(key) for key in ("state", "next_state", "action", "reward", "done"))
         return state.to(self.device), next_state.to(self.device), action.to(self.device).squeeze(), reward.to(self.device).squeeze(), done.to(self.device).squeeze(), info
 
+
+    def calculate_intrinsic_reward(self, state, next_state, action):
+        """Calculate intrinsic reward using the ICM"""
+        state_feature = self.state_embedding(state)
+        next_state_feature = self.state_embedding(next_state)
+        predicted_next_state_feature = self.forward_model(state_feature, action)
+        intrinsic_reward = torch.norm(predicted_next_state_feature - next_state_feature, p=2)
+        return intrinsic_reward
+
+
     def learn(self):
         """Update online action value (Q) function with a batch of experiences"""
         if self.curr_step % self.config.sync_freq == 0:
@@ -399,13 +452,32 @@ class DDQN(nn.Module):
         q_est = self.net(state, model="online")[
             np.arange(0, self.config.batch_size), action]
 
+        if self.icm:
+            state_feature = self.state_embedding(state)
+            next_state_feature = self.state_embedding(next_state)
+
+            predicted_action = self.inverse_model(state_feature, next_state_feature)
+            predicted_next_state_feature = self.forward_model(state_feature, action)
+
+            LI_loss = self.inverse_loss_fn(predicted_action, action)
+            LF_loss = self.forward_loss_fn(predicted_next_state_feature, next_state_feature)*( self.n_scaling / 2 ) 
+
+            intrinsic_reward = torch.norm(predicted_next_state_feature - next_state_feature, p=2)
+
         with torch.no_grad():
             next_state_Q = self.net(next_state, model="online")
             best_action = torch.argmax(next_state_Q, axis=1)
             next_Q = self.net(next_state, model="target")[
                 np.arange(0, self.config.batch_size), best_action]
-            q_tgt = (reward + (1 - done.float()) * self.config.gamma * next_Q).float()
+            
+            if self.icm:
+                total_reward = reward + intrinsic_reward
+            else:
+                total_reward = reward
+
+            q_tgt = (total_reward + (1 - done.float()) * self.config.gamma * next_Q).float()
         td_error = q_tgt - q_est 
+
         if self.prioritized:
             priority = td_error.abs() + self.config.epsilon_buffer
             importance_sampling_weights = torch.FloatTensor(info["_weight"]).reshape(-1, 1).to(self.device)
@@ -413,10 +485,28 @@ class DDQN(nn.Module):
             self.buffer.update_priority(info["index"], priority)
         else:
             loss = self.loss_fn(q_est, q_tgt)
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
+
+        if self.icm:
+            total_loss = -self.gamma * loss + (1 - self.beta) * LI_loss + self.beta * LF_loss
+
+            self.optimizer.zero_grad()
+            self.forward_optimizer.zero_grad()
+            self.inverse_optimizer.zero_grad()
+            self.state_embedding_optimizer.zero_grad()
+
+            total_loss.backward()
+            self.optimizer.step()
+            self.forward_optimizer.step()
+            self.inverse_optimizer.step()
+            self.state_embedding_optimizer.step()
+        
+        else:
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
         return td_error, loss.item()
+        
+
         
     def train(self):
         rewards = []
@@ -476,9 +566,12 @@ class DDQN(nn.Module):
                  save_path)
         print(f"MarioNet saved to {save_path} at step {self.curr_step}")
 
-    # TODO more modular loading
+   
     def load(self, model_path: str=None):
+        """Load a model from a checkpoint"""
+
         if model_path == "mario_net_0.chkpt":
+            print("No model to load")
             return
         
         load_path = self.dir / model_path
@@ -503,7 +596,7 @@ class DDQN(nn.Module):
         env = self.make_env(multi=False)
         rewards = []
 
-        print('\nEvaluating for 5 episodes')
+        print(f'\nEvaluating for 5 episodes')
         print('Algorithm: {}'.format('DDQN_PER' if self.prioritized else 'DDQN'))
         for episode in tqdm(range(5)):
             total_reward = 0

@@ -8,8 +8,8 @@ This project focuses on implementing reinforcement learning algorithms to train 
 
 ## **Features**
 
-- **Reinforcement Learning Algorithms**: Implement and experiment with various RL algorithms such as Sarsa, Double Deep Q-learning, A3C.
-- **Super Mario Gym Environment**: Utilize the OpenAI Gym environment for Super Mario, providing a realistic simulation for training and evaluating the agent.
+- **Reinforcement Learning Algorithms**: Implement and experiment with various RL algorithms such as Sarsa, Double Deep Q-learning, A3C and ICM module.
+- **Super Mario Gym Environment**: Utilize the OpenAI Gym environment for Super Mario, providing a simulation for training and evaluating the agent.
 - **Visualization**: Include visualizations and graphs to demonstrate the learning progress of the agent over time.
 
 ## **Getting Started**
@@ -60,10 +60,11 @@ python3 main.py [OPTIONS]
 **Command-Line Arguments**:
 - '-t', '--train': Enable training mode.
 - '-e', '--evaluate': Enable evaluation mode.
-- 'algorithm <algorithm>': Specify the algorithm to use. Options are ddqn, ddqn_per, a3c, sarsa Default is ddqn.
-- '--episodes <num_episodes>': Set the number of episodes:
+- 'algorithm <algorithm>': Specify the algorithm to use. Options are ddqn, ddqn_per, a3c, sarsa. Default is ddqn.
+- '--episodes' <num_episodes>': Set the number of episodes:
     - Default for training is 20000;
     - Default for evaluate is 5.
+- '--icm': Specify if the algorithm will use the ICM module. Default is False
 - ' --log-interval <interval>': Interval for logging information. Default is 10.
 - '--save-interval <interval>': Interval for saving the model. Default is 100.
 - '--log-dir <path>': Directory to save logs. Default is ./logs/.
@@ -79,12 +80,12 @@ python3 main.py -t
 
 2. Run training with a specific algorithm and number of episodes
 ```bash
-python3 main.py -t --episodes 5000 --algorithm ddqn_per --model mario_net_200.chkpt
+python3 main.py -t --episodes 5000 --algorithm ddqn_per --icm --model mario_net_10.chkpt
 ```
 3. Run evaluation
 
 ```bash
-python3 main.py -e
+python3 main.py -e --algorithm ddqn_per --icm --model mario_net_10.chkpt
 ```
 
 ## Contacts

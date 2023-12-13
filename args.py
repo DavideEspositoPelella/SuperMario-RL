@@ -16,6 +16,9 @@ def get_args():
                         type=int, 
                         default=20000, 
                         help='Number of episodes to train')
+    parser.add_argument('--icm', 
+                        action='store_true',
+                        help='Include ICM (Intrinsic Curiosity Module) in training')
     parser.add_argument('--log-interval', 
                         type=int, 
                         default=10,
