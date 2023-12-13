@@ -1,73 +1,124 @@
-import os
+import subprocess
+import webbrowser
+from pathlib import Path
+from datetime import datetime
 
 from args import get_args
+
+
 from agents.ddqn_per import DDQN
-
-
-import gym
-import gym_super_mario_bros
 from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
-from nes_py.wrappers import JoypadSpace
-from gym.wrappers import FrameStack
-import numpy as np
 import torch
 
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 
 args = get_args()
 
-try:
-    os.makedirs(args.log_dir)
-except OSError:
-    pass
 
-
-def evaluate(algorithm: str='ddqn',
-             episodes: int=5,
-             icm: bool=False) -> None:
+def create_dir(base_dir: str,
+               algorithm: str, 
+               icm: bool) -> Path:
     """
-    Evaluate the agent with the specified algorithm for the specified number of episodes.
+    Constructs the directory path based on the algorithm and icm flag.
+    
+    Args:
+        - base_dir (str): The base directory.
+        - algorithm (str): The algorithm used for training.
+        - icm (bool): Whether to use ICM.
+    
+    Returns:
+        - directory (Path): The constructed directory path.
+    """
+    directory = base_dir
+    if algorithm == 'ddqn_per':
+        directory += "ddqn_per"
+    elif algorithm == 'ddqn':
+        directory += "ddqn"
+    if icm:
+        directory += "_icm"
+    directory = Path(directory)
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def init_tensorboard(log_dir: str):
+    """
+    Initialize TensorBoard.
 
     Args:
-        - algorithm (str): The algorithm to use to train the agent. Available options are 'ddqn', 'ddqn_per', 'a3c', 'dueling_ddqn', and 'sarsa'. Defaults to 'ddqn'.
-        - episodes (int): The number of episodes to train for. Defaults to 5.
+        - log_dir (str): The directory where to save TensorBoard logs.
+
+    Returns:
+        - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object.
+        - tb_process (subprocess.Popen): The TensorBoard process.
+        - log_dir (Path): The directory where to save TensorBoard logs.
     """
-    with torch.no_grad():
-        if algorithm == 'ddqn':
-            agent = DDQN(episodes=episodes, 
-                        prioritized=False,
-                        icm=icm)
-        elif algorithm == 'ddqn_per':
-            agent = DDQN(episodes=episodes, 
-                        prioritized=True,
-                        icm=icm)
-        else:
-            raise ValueError("Invalid algorithm selected")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    current_log_dir = log_dir / timestamp
+    print(f"\nTensorBoard log directory: {str(log_dir)}\n")
+    tb_writer = SummaryWriter(log_dir=current_log_dir)
+    tb_command = ['tensorboard', '--logdir', log_dir, '--bind_all', '--load_fast=false']
+    tb_process = subprocess.Popen(tb_command)
+    webbrowser.open("http://localhost:6016")
     
-        agent.load(args.model)
-        agent.evaluate(episodes)
-    
+    return tb_writer, tb_process, current_log_dir
 
 
-def train(algorithm: str='ddqn', 
-          episodes: int=20000,
-          icm: bool=False) -> None:
+def close_tb(tb_writer: SummaryWriter, 
+             tb_process: subprocess.Popen) -> None:
+    """
+    Close TensorBoard process and SummaryWriter.
+
+    Args:
+        - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object.
+        - tb_process (subprocess.Popen): The TensorBoard process.
+    """
+    tb_writer.close()
+    tb_process.terminate()
+    tb_process.wait()
+
+
+def train(algorithm: str,
+          episodes: int,
+          icm: bool,
+          tb_writer: SummaryWriter,
+          log_dir: Path, 
+          save_dir: Path,
+          log_freq: int, 
+          save_freq: int) -> None:
     """
     Train the agent with the specified algorithm for the specified number of episodes.
 
     Args:
-        - algorithm (str): The algorithm to use to train the agent. Available options are 'ddqn', 'ddqn_per', 'a3c', 'dueling_ddqn', and 'sarsa'. Defaults to 'ddqn'.
-        - episodes (int): The number of episodes to train for. Defaults to 20000.
+        - algorithm (str): The algorithm to use.
+        - episodes (int): The number of episodes to train.
+        - icm (bool): Whether to use ICM.
+        - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object.
+        - log_dir (Path): The directory where to save TensorBoard logs.
+        - save_dir (Path): The directory where to save trained models.
+        - log_freq (int): Log frequency.
+        - save_freq (int): Model save frequency.
     """
     if algorithm == 'ddqn':
-        agent = DDQN(episodes=episodes, 
-                     prioritized=False,
-                     icm=icm)
+        agent = DDQN(episodes=episodes,
+                     prioritized=False, 
+                     icm=icm, 
+                     tb_writer=tb_writer,
+                     log_dir=log_dir, 
+                     save_dir=save_dir, 
+                     log_freq=log_freq,
+                     save_freq=save_freq)
+        
     elif algorithm == 'ddqn_per':
         agent = DDQN(episodes=episodes, 
                      prioritized=True,
-                     icm=icm)
+                     icm=icm,
+                     tb_writer=tb_writer,
+                     log_dir=log_dir,
+                     save_dir=save_dir, 
+                     log_freq=log_freq,
+                     save_freq=save_freq)
     else:
         raise ValueError("Invalid algorithm selected")
     
@@ -76,17 +127,70 @@ def train(algorithm: str='ddqn',
     agent.train()
     agent.save()
 
-def main():
-    tb_writer = SummaryWriter(log_dir=args.save_dir)
-    if args.train:
-        train(algorithm=args.algorithm,
-              episodes=args.episodes,
-              icm=args.icm)
-    if args.evaluate:
-        evaluate(algorithm=args.algorithm, 
-                 episodes=args.episodes,
-                 icm=args.icm)
 
+def evaluate(algorithm: str,
+             episodes: int,
+             icm: bool,
+             tb_writer: SummaryWriter,
+             log_dir: Path, 
+             save_dir: Path, 
+             log_freq, 
+             save_freq) -> None:
+    """
+    Evaluate the agent with the specified algorithm for the specified number of episodes.
+
+    Args:
+        - algorithm (str): The algorithm to use.
+        - episodes (int): The number of episodes to train.
+        - icm (bool): Whether to use ICM.
+        - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object.
+        - log_dir (Path): The directory where to save TensorBoard logs.
+        - save_dir (Path): The directory where to save trained models.
+        - log_freq (int): Log frequency.
+        - save_freq (int): Model save frequency.
+    """
+    with torch.no_grad():
+        if algorithm == 'ddqn':
+            agent = DDQN(episodes=episodes, 
+                         prioritized=False,
+                         icm=icm, 
+                         tb_writer=tb_writer,
+                         log_dir=log_dir,
+                         save_dir=save_dir, 
+                         log_freq=log_freq,
+                         save_freq=save_freq)
+        elif algorithm == 'ddqn_per':
+            agent = DDQN(episodes=episodes, 
+                         prioritized=True,
+                         icm=icm, 
+                         tb_writer=tb_writer,
+                         log_dir=log_dir,
+                         save_dir=save_dir, 
+                         log_freq=log_freq,
+                         save_freq=save_freq)
+        else:
+            raise ValueError("Invalid algorithm selected")
+        agent.load(args.model)
+        agent.evaluate(episodes)
+    
+
+def main():
+    # create save directory
+    save_dir = create_dir(args.save_dir, args.algorithm, args.icm)
+    log_dir = create_dir(args.log_dir, args.algorithm, args.icm)
+    # initialize tensorboard
+    if args.tb:
+        tb_writer, tb_process, log_dir = init_tensorboard(log_dir)
+    else:
+        tb_writer, log_dir = None, None
+    # train/evaluate
+    if args.train:
+        train(args.algorithm, args.episodes, args.icm, tb_writer, log_dir, save_dir, args.log_freq, args.save_freq)
+    if args.evaluate:
+        evaluate(args.algorithm, args.episodes, args.icm, tb_writer, log_dir, save_dir, args.log_freq, args.save_freq)
+    # close tensorboard
+    if args.tb:
+        close_tb(tb_writer, tb_process)
 
 if __name__ == '__main__':
     main()

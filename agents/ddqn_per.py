@@ -5,7 +5,9 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.tensorboard import SummaryWriter
 import torchvision
+
 
 import gym
 from gym.spaces import Box
@@ -22,18 +24,16 @@ from tensordict import TensorDict
 from agents.icm import embedding, inverseModel, forwardModel
 
 
-
 class Net(nn.Module):
     def __init__(self, 
-                 num_channels: int,
-                 output_dim: int) -> None:
+                 num_channels: int=4,
+                 output_dim: int=5) -> None:
         """         
         Initializes the network for the agent.
 
         Args:
-            - num_actions (int): Number of actions (discrete environment). Default to 5.
-            - in_channels (int): Number of input channels (number of frames stacked). Default to 4.
-            - hidden_size (int): Hidden size for the network. Default to 64.
+            - num_channels (int): Number of channels in input. Default to 4.
+            - output_dim (int): Output dimension. Default to 5. 
         """
         super(Net, self).__init__()
         # convolutional layers
@@ -171,8 +171,6 @@ class ResetWrapper(gym.Wrapper):
 
 class Config:
     def __init__(self, 
-                 multi_env: bool=True,
-                 num_envs: int=2,
                  skip_frame: int=2,
                  exploration_rate: float=1,
                  exploration_rate_decay: float=0.999,
@@ -196,8 +194,6 @@ class Config:
         Initializes the configuration settings.
 
         Args:
-            - multi_env (bool): Whether to use multiple environments. Default to True.
-            - num_envs (int): Number of environments. Default to 2.
             - skip_frame (int): Number of frames to skip. Default to 2.
             - exploration_rate (float): Exploration rate. Default to 1.
             - exploration_rate_decay (float): Decay value for the exploration rate. Default to 0.999.
@@ -212,14 +208,12 @@ class Config:
             - lr (float): Learning rate. Default to 0.0001.
             - update_freq (int): Frequency of updating the online network. Default to 3.
             - sync_freq (int): Frequency of updating the target network. Default to 1000.
-            - episodes (int): Maximum number of episodes. Default to 1000.
+            - episodes (int): Number of episodes to train. Default to 2000.
             - feature_size (int): Size of the feature embedding. Default to 512.
-            - n_scaling (float): Weighs the importance of the policy loss against the intrinsic reward. Default to 0.5.
-            - beta_icm (float): Weighs the importance of the forward loss against the inverse loss. Default to 0.5.
+            - n_scaling (float): Weights the importance of the policy loss against the intrinsic reward. Default to 0.5.
+            - beta_icm (float): Weights the importance of the forward loss against the inverse loss. Default to 0.5.
             - gamma_icm (float): Discount factor for the intrinsic reward. Default to 0.5.
         """
-        self.multi_env = multi_env
-        self.num_envs = num_envs
         self.skip_frame = skip_frame
         self.exploration_rate = exploration_rate
         self.exploration_rate_decay = exploration_rate_decay
@@ -244,42 +238,102 @@ class Config:
 class DDQN(nn.Module):
 
     def __init__(self, 
-                 episodes: int=10000, 
-                 prioritized: bool=True,
-                 icm: bool=False):
+                 episodes: int=2000, 
+                 prioritized: bool=False,
+                 icm: bool=False,
+                 tb_writer: SummaryWriter=None, 
+                 log_dir: Path=Path('./logs/'),
+                 save_dir: Path=Path('./checkpoints/'),
+                 log_freq: int=100,
+                 save_freq: int=100) -> None:
+        """
+        Initializes the DDQN agent.
+
+        Args:
+            - episodes (int): Number of episodes to train. Default to 2000.
+            - prioritized (bool): Whether to use prioritized replay buffer. Default to False.
+            - icm (bool): Whether to use ICM. Default to False.
+            - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object. Default to None.
+            - log_dir (Path): The directory where to save TensorBoard logs. Default to None.
+            - save_dir (Path): The directory where to save trained models. Default to None.
+            - log_freq (int): Log frequency. Default to 100.
+            - save_freq (int): Save frequency. Default to 100.
+        """
+
         super(DDQN, self).__init__()
         # initialize the configuration settings
-        self.config = Config(multi_env = False,
-                             num_envs=2,
-                             skip_frame = 2,
-                             exploration_rate=1,
-                             exploration_rate_decay=0.999,
-                             exploration_rate_min=0.1,
-                             memory_size=10000,
-                             burn_in=200,  
-                             alpha=0.6,
-                             beta=0.5,
-                             epsilon_buffer=0.01,
-                             gamma=0.99,
-                             batch_size=32,                            
-                             lr=0.0001,
-                             update_freq=3,
-                             sync_freq=1000,
-                             episodes=episodes)
+        self.configure_agent(episodes=episodes, prioritized=prioritized, icm=icm)
+        self.define_logs_metric(tb_writer=tb_writer, log_dir=log_dir, save_dir=save_dir, 
+                                log_freq=log_freq, save_freq=save_freq)
+        self.env = self.make_env()
+        self.define_network_components()
+    
+    def configure_agent(self,
+                        episodes: int=2000,
+                        prioritized: bool=False,
+                        icm: bool=False) -> None:
+        """
+        Initializes the configuration settings.
+
+        Args:
+            - episodes (int): Number of episodes to train. Default to 2000.
+            - prioritized (bool): Whether to use prioritized replay buffer. Default to False.
+            - icm (bool): Whether to use ICM. Default to False.
+        """
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.prioritized = prioritized
         self.icm = icm
-        # create the environment
-        self.env = self.make_env(multi=self.config.multi_env,
-                                 num_envs=self.config.num_envs)
-        # extract the state dimension and the number of actions 
+        self.config = Config(skip_frame = 2, exploration_rate=1, exploration_rate_decay=0.999, exploration_rate_min=0.1,
+                             memory_size=10000, burn_in=200, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
+                             gamma=0.99, batch_size=32, lr=0.0001,
+                             update_freq=3, sync_freq=1000, episodes=episodes,
+                             feature_size=512, n_scaling=0.5, beta_icm=0.5, gamma_icm=0.5)
+
+    def define_logs_metric(self, 
+                           tb_writer: SummaryWriter=None, 
+                           log_dir: Path=None,
+                           save_dir: Path=None,
+                           log_freq: int=100, 
+                           save_freq: int=100):
+        """#TODO: add docstring"""
+        self.tb_writer = tb_writer
+        self.log_dir = log_dir
+        self.save_dir = save_dir
+        self.loss_log_freq = log_freq
+        self.save_freq = save_freq
+        self.curr_step_global = 0
+        self.curr_step_local = 0
+  
+    def make_env(self):
+        env_ID = "SuperMarioBros-1-1-v0"
+        if gym.__version__ < '0.26':
+            env = gym_super_mario_bros.make(env_ID, new_step_api=True)
+
+        else:
+            env = gym_super_mario_bros.make(env_ID, render_mode='human', apply_api_compatibility=True)
+
+        # apply reset wrapper and other wrappers
+        env = SkipFrame(env, skip_frame=self.config.skip_frame)
+        env = GrayScaleObservation(env)
+        env = ResizeObservation(env, shape=84)
+        env = JoypadSpace(env, SIMPLE_MOVEMENT)
+        if gym.__version__ < '0.26':
+            env = FrameStack(env, 
+                             num_stack=4, 
+                             new_step_api=True)
+        else:
+            env = FrameStack(env, 
+                             num_stack=4)
+            
         self.state_dim = (4, 84, 84)
-        self.num_actions=self.env.action_space.n
-        # initialize the networks
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.num_actions=env.action_space.n
+        return env
+
+    def define_network_components(self):
+        """#TODO: add docstring"""
         self.net = DDQNetwork(input_dim=self.state_dim, 
                               output_dim=self.num_actions).float().to(self.device)
         if self.prioritized:
-            # initialize the prioritized replay buffer
             self.buffer = TensorDictPrioritizedReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size),
                                                             alpha=self.config.alpha, 
                                                             beta=self.config.beta,
@@ -289,24 +343,8 @@ class DDQN(nn.Module):
         else:
             self.buffer = TensorDictReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size))
             self.loss_fn = torch.nn.SmoothL1Loss()
-        # initialize the optimizer and the loss function
-        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)
-        self.curr_step = 0 #TODO remove this
-        
-        if self.prioritized:
-            if self.icm:
-                self.dir  = Path("checkpoints/ddqn_per_icm")
-            else:
-                self.dir  = Path("checkpoints/ddqn_per")
-        else:
-            if self.icm:
-                self.dir  = Path("checkpoints/ddqn_icm")
-            else:
-                self.dir  = Path("checkpoints/ddqn")
-        self.dir.mkdir(parents=True, exist_ok=True)
-        self.save_every = 100
+        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)        
 
-        # Initialize forwand and inverse models
         if self.icm:
             self.feature_size = self.config.feature_size
             self.beta = self.config.beta_icm
@@ -325,44 +363,6 @@ class DDQN(nn.Module):
 
             self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
             self.forward_loss_fn = torch.nn.MSELoss()
-
-
-        #TODO add logging
-        self.print_every = 20
-
-        
-                
-    def make_env(self, 
-                 multi=True, 
-                 num_envs=2):
-        if multi:
-            env = gym.vector.make('SuperMarioBrosRandomStages-v3', 
-                                  stages=['1-4', '2-4', '3-4', '4-4'], 
-                                  num_envs=num_envs, 
-                                  asynchronous=False)
-        else:
-            env_ID = "SuperMarioBros-1-1-v0"
-            if gym.__version__ < '0.26':
-                env = gym_super_mario_bros.make(env_ID, new_step_api=True)
-
-            else:
-                env = gym_super_mario_bros.make(env_ID, render_mode='human', apply_api_compatibility=True)
-
-        # apply reset wrapper and other wrappers
-        if multi:
-            env = ResetWrapper(env)
-        env = SkipFrame(env, skip_frame=self.config.skip_frame)
-        env = GrayScaleObservation(env)
-        env = ResizeObservation(env, shape=84)
-        env = JoypadSpace(env, SIMPLE_MOVEMENT)
-        if gym.__version__ < '0.26':
-            env = FrameStack(env, 
-                             num_stack=4, 
-                             new_step_api=True)
-        else:
-            env = FrameStack(env, 
-                             num_stack=4)
-        return env
 
     def act(self, state):
         """
@@ -384,7 +384,8 @@ class DDQN(nn.Module):
         self.config.exploration_rate *= self.config.exploration_rate_decay
         self.config.exploration_rate = max(self.config.exploration_rate_min, self.config.exploration_rate)
 
-        self.curr_step += 1
+        self.curr_step_global += 1
+        self.curr_step_local += 1
         return action_idx
     
         
@@ -437,14 +438,16 @@ class DDQN(nn.Module):
 
 
     def learn(self):
-        """Update online action value (Q) function with a batch of experiences"""
-        if self.curr_step % self.config.sync_freq == 0:
+        """#TODO: add docstring
+        #TODO simplify this function
+        """
+        if self.curr_step_global % self.config.sync_freq == 0:
             self.net.target_net.load_state_dict(self.net.online_net.state_dict())
 
-        if self.curr_step < self.config.burn_in:
+        if self.curr_step_global < self.config.burn_in:
             return None, None
 
-        if self.curr_step % self.config.update_freq != 0:
+        if self.curr_step_global % self.config.update_freq != 0:
             return None, None
 
         state, next_state, action, reward, done, info = self.sample()
@@ -504,29 +507,25 @@ class DDQN(nn.Module):
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+        
+        if self.tb_writer and self.curr_step_global % self.loss_log_freq == 0:
+            self.tb_writer.add_scalar("Loss/train", loss.item(), self.curr_step_global)
+            self.tb_writer.add_scalar("Td_error/train", td_error.mean(), self.curr_step_global)
+
         return td_error, loss.item()
         
-
-        
     def train(self):
+        """#TODO: add docstring"""
         rewards = []
         episodes = self.config.episodes
 
         print("Starting...")
         print(f"Training for: {episodes} episodes\n")
-        for e in tqdm(range(episodes)):
-            self.curr_step = 0 #TODO remove this
+        for e in range(episodes):
             reset_output = self.env.reset()
-
             self.ep = e
 
-            # Handle multi-environment
-            if self.config.multi_env:
-                # Extract the first observation from each sub-environment
-                state = np.array([obs_info[0] for obs_info in reset_output])
-            else:
-                # Handle single environment
-                state, _ = reset_output
+            state, _ = reset_output
             
             total_reward = 0
             while True:
@@ -546,27 +545,23 @@ class DDQN(nn.Module):
                     break
 
             rewards.append(total_reward)
-            
-            if self.ep % self.print_every == 0:
-                print(f"\nEpisode: {self.ep} Mean reward: {np.mean(rewards)}")
-
-            
-            if self.ep % self.save_every == 0:
+            if self.tb_writer:
+                self.tb_writer.add_scalar("Reward/train", np.mean(rewards), self.curr_step_global)
+            if self.ep % self.save_freq == 0:
                 self.save()
-
-
         print("Training complete.\n")
         return
     
+    # TODO modify this function to save also icm weights
     def save(self):
-        save_path = (self.dir / f"mario_net_{self.ep}.chkpt")
+        save_path = (self.save_dir / f"mario_net_{self.ep}.chkpt")
         torch.save(
             dict(model=self.net.state_dict(), 
                  exploration_rate=self.config.exploration_rate), 
                  save_path)
-        print(f"MarioNet saved to {save_path} at step {self.curr_step}")
+        print(f"MarioNet saved to {save_path} at step {self.curr_step_global}")
 
-   
+    # TODO modify this function to load also icm weights
     def load(self, model_path: str=None):
         """Load a model from a checkpoint"""
 
@@ -574,7 +569,7 @@ class DDQN(nn.Module):
             print("No model to load")
             return
         
-        load_path = self.dir / model_path
+        load_path = self.save_dir / model_path
         
         if not load_path.exists():
                 raise ValueError(f"{load_path} does not exist")
@@ -592,8 +587,9 @@ class DDQN(nn.Module):
         ret.device = device
         return ret
 
+    # TODO is this compliant with the new ICM module?
     def evaluate(self, episodes: int=5) -> None:
-        env = self.make_env(multi=False)
+        env = self.make_env()
         rewards = []
 
         print(f'\nEvaluating for 5 episodes')
