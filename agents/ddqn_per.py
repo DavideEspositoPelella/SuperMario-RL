@@ -22,7 +22,7 @@ from nes_py.wrappers import JoypadSpace
 from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage, TensorDictReplayBuffer
 from tensordict import TensorDict
 
-from agents.icm import embedding, inverseModel, forwardModel
+from agents.icm import ICMModel
 
 
 class Net(nn.Module):
@@ -86,7 +86,7 @@ class DDQNetwork(nn.Module):
             - input_dim (int): Input dimension.
             - output_dim (int): Output dimension.
         """
-        c, h, w = input_dim
+        c = input_dim[0]
         super(DDQNetwork, self).__init__()
         # initialize the online and the target networks
         self.online_net = Net(c, output_dim) 
@@ -285,9 +285,9 @@ class DDQN(nn.Module):
         self.prioritized = prioritized
         self.icm = icm
         self.config = Config(skip_frame = 2, exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.1,
-                             memory_size=10000, burn_in=2000, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
+                             memory_size=10000, burn_in=100, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
                              gamma=0.99, batch_size=32, lr=0.001,
-                             update_freq=3, sync_freq=100, episodes=episodes,
+                             update_freq=10, sync_freq=100, episodes=episodes,
                              feature_size=288, n_scaling=1.0, beta_icm=0.2, lambda_icm=0.1)
 
     def define_logs_metric(self, 
@@ -347,16 +347,13 @@ class DDQN(nn.Module):
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)        
 
         if self.icm:
-            self.state_embedding = embedding(num_channels=4, output_dim=self.config.feature_size).float().to(self.device)
-            self.state_embedding_optimizer = torch.optim.Adam(self.state_embedding.parameters(), lr=self.config.lr)
-            self.state_embedding_loss_fn = torch.nn.MSELoss()
-
-            self.inverse_model = inverseModel(feature_size=self.config.feature_size, num_actions=self.num_actions).float().to(self.device)
-            self.forward_model = forwardModel(action_dim=self.num_actions, out_channels=self.config.feature_size).float().to(self.device)
-
-            self.inverse_optimizer = torch.optim.Adam(self.inverse_model.parameters(), lr=self.config.lr)
-            self.forward_optimizer = torch.optim.Adam(self.forward_model.parameters(), lr=self.config.lr)
-
+            self.icm_model = ICMModel(input_dim=self.state_dim, 
+                                      num_actions=self.num_actions, 
+                                      feature_size=self.config.feature_size, 
+                                      device=self.device).float().to(self.device)
+            
+            self.optimizer = torch.optim.Adam(list(self.net.parameters()) + list(self.icm_model.parameters()),lr=self.config.lr)
+            self.emb_loss_fn = torch.nn.MSELoss()
             self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
             self.forward_loss_fn = torch.nn.MSELoss()
 
@@ -433,38 +430,25 @@ class DDQN(nn.Module):
             self.net.target_net.load_state_dict(self.net.online_net.state_dict())
 
         state, next_state, action, reward, done, info = self.sample()
-
-        q_est = self.net(state, model="online")[
-            np.arange(0, self.config.batch_size), action]
+        torch.clamp(reward, -1, 1)
+        one_hot_action = F.one_hot(action, num_classes=self.num_actions).float()
+        total_reward = reward
 
         if self.icm:
-            state_feature = self.state_embedding(state)
-            next_state_feature = self.state_embedding(next_state)
+            next_state_feat, pred_next_state_feat, pred_action = self.icm_model(state, next_state, one_hot_action)
+            inverse_loss = self.inverse_loss_fn(pred_action, action)
+            forward_loss = self.forward_loss_fn(pred_next_state_feat, next_state_feat)  
 
-            predicted_action = self.inverse_model(state_feature, next_state_feature)
-            predicted_next_state_feature = self.forward_model(state_feature, action)
+            intrinsic_reward = intrinsic_reward = self.config.n_scaling * F.mse_loss(next_state_feat, pred_next_state_feat, reduction='none').mean(-1)
+            total_reward = reward + intrinsic_reward
 
-            LI_loss = self.inverse_loss_fn(predicted_action, action)
-            LF_loss = self.forward_loss_fn(predicted_next_state_feature, next_state_feature) / 2  
-
-            intrinsic_reward = self.forward_loss_fn(predicted_next_state_feature, next_state_feature)*(self.config.n_scaling / 2)
+        q_est = self.net(state, model="online")[np.arange(0, self.config.batch_size), action]
             
-
         with torch.no_grad():
             next_state_Q = self.net(next_state, model="online")
             best_action = torch.argmax(next_state_Q, axis=1)
-            next_Q = self.net(next_state, model="target")[
-                np.arange(0, self.config.batch_size), best_action]
-            
-            if self.icm:
-                print("Intrinsic reward: ", intrinsic_reward)
-                print("Extrinsic reward: ", reward)
-                print("Total reward: ", intrinsic_reward + reward)
-                total_reward = reward + intrinsic_reward
-            else:
-                total_reward = reward
-
-            q_tgt = (total_reward + (1 - done.float()) * self.config.gamma * next_Q).float()
+            next_Q = self.net(next_state, model="target")[np.arange(0, self.config.batch_size), best_action]    
+            q_tgt = (reward + (1 - done.float()) * self.config.gamma * next_Q).float()
         td_error = q_tgt - q_est 
 
         if self.prioritized:
@@ -474,41 +458,25 @@ class DDQN(nn.Module):
             self.buffer.update_priority(info["index"], priority)
         else:
             loss = self.loss_fn(q_est, q_tgt)
-
+        loss = torch.clamp(loss, -1, 1)
+            
         if self.icm:
-            total_loss = -self.config.lambda_icm * loss + (1 - self.config.beta) * LI_loss + self.config.beta * LF_loss
-
-            self.optimizer.zero_grad()
-            self.forward_optimizer.zero_grad()
-            self.inverse_optimizer.zero_grad()
-            self.state_embedding_optimizer.zero_grad()
-
-            total_loss.backward()
-
-            torch.nn.utils.clip_grad_norm_(self.net.parameters(), 1.0)
-            torch.nn.utils.clip_grad_norm_(self.state_embedding.parameters(), 1.0)
-            torch.nn.utils.clip_grad_norm_(self.forward_model.parameters(), 1.0)
-            torch.nn.utils.clip_grad_norm_(self.inverse_model.parameters(), 1.0)
-            self.optimizer.step()
-            self.forward_optimizer.step()
-            self.inverse_optimizer.step()
-            self.state_embedding_optimizer.step()
-        
-        else:
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
+            loss = self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
+            
+        self.optimizer.zero_grad()
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(self.net.parameters(), 1.0)
+        self.optimizer.step()
         
         if self.tb_writer and self.curr_step_global % self.loss_log_freq == 0:
-            if self.icm:
-                self.tb_writer.add_scalar("Total_Loss/train", total_loss.item(), self.curr_step_global)
-                self.tb_writer.add_scalar("Forward_loss/train", LF_loss.item(), self.curr_step_global)
-                self.tb_writer.add_scalar("Inverse_loss/train", LI_loss.item(), self.curr_step_global)
-                self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.curr_step_global)
-            self.tb_writer.add_scalar("Extrinsic_reward/train", total_reward.mean(), self.curr_step_global)
             self.tb_writer.add_scalar("Loss/train", loss.item(), self.curr_step_global)
-            self.tb_writer.add_scalar("Td_error/train", td_error.mean(), self.curr_step_global)
-
+            self.tb_writer.add_scalar("Total_reward/train", total_reward.mean(), self.curr_step_global)
+            self.tb_writer.add_scalar("Td_error/train", td_error.mean(), self.curr_step_global)                
+            if self.icm:
+                self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.curr_step_global)
+                self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.curr_step_global)
+                self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.curr_step_global)
+                
         return td_error, loss.item()
         
     def train(self):
