@@ -284,9 +284,9 @@ class DDQN(nn.Module):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.prioritized = prioritized
         self.icm = icm
-        self.config = Config(skip_frame = 2, exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.1,
-                             memory_size=10000, burn_in=2000, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
-                             gamma=0.99, batch_size=32, lr=0.001,
+        self.config = Config(skip_frame = 2, exploration_rate=0.5, exploration_rate_decay=0.7, exploration_rate_min=0.1,
+                             memory_size=10000, burn_in=200, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
+                             gamma=0.99, batch_size=32, lr=0.0001,
                              update_freq=3, sync_freq=100, episodes=episodes,
                              feature_size=288, n_scaling=1.0, beta_icm=0.2, lambda_icm=0.1)
 
@@ -352,7 +352,7 @@ class DDQN(nn.Module):
             self.state_embedding_loss_fn = torch.nn.MSELoss()
 
             self.inverse_model = inverseModel(feature_size=self.config.feature_size, num_actions=self.num_actions).float().to(self.device)
-            self.forward_model = forwardModel(action_dim=self.num_actions, out_channels=self.config.feature_size).float().to(self.device)
+            self.forward_model = forwardModel(action_dim=self.num_actions, out_channels=288).float().to(self.device)
 
             self.inverse_optimizer = torch.optim.Adam(self.inverse_model.parameters(), lr=self.config.lr)
             self.forward_optimizer = torch.optim.Adam(self.forward_model.parameters(), lr=self.config.lr)
@@ -424,6 +424,14 @@ class DDQN(nn.Module):
         return state.to(self.device), next_state.to(self.device), action.to(self.device).squeeze(), reward.to(self.device).squeeze(), done.to(self.device).squeeze(), info
 
 
+    def calculate_intrinsic_reward(self, state, next_state, action):
+        """Calculate intrinsic reward using the ICM"""
+        state_feature = self.state_embedding(state)
+        next_state_feature = self.state_embedding(next_state)
+        predicted_next_state_feature = self.forward_model(state_feature, action)
+        intrinsic_reward = torch.norm(predicted_next_state_feature - next_state_feature, p=2)
+        return intrinsic_reward
+
 
     def learn(self):
         """#TODO: add docstring
@@ -431,6 +439,12 @@ class DDQN(nn.Module):
         """
         if self.curr_step_global % self.config.sync_freq == 0:
             self.net.target_net.load_state_dict(self.net.online_net.state_dict())
+
+        if self.curr_step_global < self.config.burn_in:
+            return None, None
+
+        if self.curr_step_global % self.config.update_freq != 0:
+            return None, None
 
         state, next_state, action, reward, done, info = self.sample()
 
@@ -448,7 +462,6 @@ class DDQN(nn.Module):
             LF_loss = self.forward_loss_fn(predicted_next_state_feature, next_state_feature) / 2  
 
             intrinsic_reward = self.forward_loss_fn(predicted_next_state_feature, next_state_feature)*(self.config.n_scaling / 2)
-            
 
         with torch.no_grad():
             next_state_Q = self.net(next_state, model="online")
@@ -457,9 +470,6 @@ class DDQN(nn.Module):
                 np.arange(0, self.config.batch_size), best_action]
             
             if self.icm:
-                print("Intrinsic reward: ", intrinsic_reward)
-                print("Extrinsic reward: ", reward)
-                print("Total reward: ", intrinsic_reward + reward)
                 total_reward = reward + intrinsic_reward
             else:
                 total_reward = reward
@@ -505,7 +515,6 @@ class DDQN(nn.Module):
                 self.tb_writer.add_scalar("Forward_loss/train", LF_loss.item(), self.curr_step_global)
                 self.tb_writer.add_scalar("Inverse_loss/train", LI_loss.item(), self.curr_step_global)
                 self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.curr_step_global)
-            self.tb_writer.add_scalar("Extrinsic_reward/train", total_reward.mean(), self.curr_step_global)
             self.tb_writer.add_scalar("Loss/train", loss.item(), self.curr_step_global)
             self.tb_writer.add_scalar("Td_error/train", td_error.mean(), self.curr_step_global)
 
@@ -516,37 +525,25 @@ class DDQN(nn.Module):
         rewards = []
         episodes = self.config.episodes
 
-        # Burn-in
-        print("Populate replay buffer")
-        reset_output = self.env.reset()
-        state, _ = reset_output
-        while self.curr_step_global < self.config.burn_in:
-            action = self.act(state)
-            next_state, reward, done, _, info = self.env.step(action) 
-            self.store(state, next_state, action, reward, done)
-            if done:
-                state, _  = self.env.reset()
-        print("Burn in complete")
-
         print("Starting...")
         print(f"Training for: {episodes} episodes\n")
-        self.curr_step_global = 0
-        self.curr_step_local = 0
-        for e in tqdm(range(episodes)):
-            state, _ = self.env.reset()
+        for e in range(episodes):
+            reset_output = self.env.reset()
             self.ep = e
-            total_reward = 0
 
+            state, _ = reset_output
+            
+            total_reward = 0
             while True:
                 action = self.act(state)
                 
                 next_state, reward, done, _, info = self.env.step(action)
+                
+                total_reward += reward
 
-                extrinsic_reward = reward
-                self.store(state, next_state, action, extrinsic_reward, done)
+                self.store(state, next_state, action, reward, done)
 
-                if self.curr_step_global % self.config.update_freq == 0:
-                    td_err, loss = self.learn()
+                q, loss = self.learn()
                 
                 state = next_state
 
