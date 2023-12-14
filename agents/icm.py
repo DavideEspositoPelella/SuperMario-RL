@@ -16,20 +16,33 @@ class embedding(nn.Module):
         super(embedding, self).__init__()
         self.conv1 = nn.Conv2d(in_channels=num_channels,
                                out_channels=32,
-                               kernel_size=8, 
-                               stride=4)
+                               kernel_size=3, 
+                               stride=2,
+                               padding=1)
         self.conv2 = nn.Conv2d(in_channels=32,
-                               out_channels=64,
-                               kernel_size=4,
-                               stride=2)
-        self.conv3 = nn.Conv2d(in_channels=64,
-                               out_channels=64,
+                               out_channels=32,
                                kernel_size=3,
-                               stride=1)
+                               stride=2,
+                               padding=1)
+        self.conv3 = nn.Conv2d(in_channels=32,
+                               out_channels=32,
+                               kernel_size=3,
+                               stride=2,
+                               padding=1)
+        self.conv4 = nn.Conv2d(in_channels=32,
+                               out_channels=32,
+                               kernel_size=3,
+                               stride=2,
+                               padding=1)
         self.flatten = nn.Flatten()
         # linear layers, the input size depends on the output of the convolutional layers
         self.fc1 = nn.Linear(3136, 512)
         self.fc2 = nn.Linear(512, output_dim)
+
+        self.batch_layer1 = nn.BatchNorm2d(num_features=32)
+        self.batch_layer2 = nn.BatchNorm2d(num_features=32)
+        self.batch_layer3 = nn.BatchNorm2d(num_features=32)
+        self.batch_layer4 = nn.BatchNorm2d(num_features=32)
 
     def forward(self, 
             x: torch.Tensor) -> torch.Tensor:
@@ -40,14 +53,12 @@ class embedding(nn.Module):
             - x (torch.Tensor): Input tensor.
         """
         # convolutional layers
-        x = F.relu(self.conv1(x)) 
-        x = F.relu(self.conv2(x)) 
-        x = F.relu(self.conv3(x))
-        # global max pooling 
+        x = F.elu(self.batch_layer1(self.conv1(x)))
+        x = F.elu(self.batch_layer2(self.conv2(x))) 
+        x = F.elu(self.batch_layer3(self.conv3(x)))
+        x = F.elu(self.batch_layer4(self.conv4(x)))
+        # flatten the output
         x = self.flatten(x)
-        # linear layers
-        x = F.relu(self.fc1(x)) 
-        x = self.fc2(x) 
         return x
 
 
@@ -62,13 +73,10 @@ class inverseModel(nn.Module):
         """
         super(inverseModel, self).__init__()
 
-        #self.feature_size = 512
-        #self.embedding = embedding(num_channels, self.feature_size)
-
         self.inverse_net = nn.Sequential(
-            nn.Linear(feature_size*2, 1024),
+            nn.Linear(feature_size*2, 256),
             nn.LeakyReLU(),
-            nn.Linear(1024, num_actions)
+            nn.Linear(256, num_actions)
         )
 
     def forward(self, 
@@ -81,10 +89,8 @@ class inverseModel(nn.Module):
             - state (torch.Tensor): Input tensor.
             - next_state (torch.Tensor): Input tensor.
         """
-        #state_embedding = self.embedding(state)
-        #next_state_embedding = self.embedding(next_state)
         x = torch.cat((state, next_state), dim=1)
-        return self.inverse_net(x)
+        return torch.softmax(self.inverse_net(x), dim=1)
 
 
 class forwardModel(nn.Module):
@@ -98,13 +104,10 @@ class forwardModel(nn.Module):
         """
         super(forwardModel, self).__init__()
 
-        #self.feature_size = 512
-        #self.embedding_state = embedding(num_channels, self.feature_size)
-
         self.forward_net = nn.Sequential(
-            nn.Linear(out_channels + 1, 1024),
+            nn.Linear(out_channels + 1, 256),
             nn.LeakyReLU(),
-            nn.Linear(1024, out_channels)
+            nn.Linear(256, out_channels)
         )
 
     def forward(self, 

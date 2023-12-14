@@ -11,6 +11,11 @@ import torch
 
 from torch.utils.tensorboard import SummaryWriter
 
+import warnings
+
+warnings.filterwarnings("ignore", category=UserWarning, module='gym.envs.registration')
+
+
 
 args = get_args()
 
@@ -55,7 +60,7 @@ def init_tensorboard(log_dir: str):
     """
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     current_log_dir = log_dir / timestamp
-    print(f"\nTensorBoard log directory: {str(log_dir)}\n")
+    print(f"\nTensorBoard log directory: {str(current_log_dir)}\n")
     tb_writer = SummaryWriter(log_dir=current_log_dir)
     tb_command = ['tensorboard', '--logdir', log_dir, '--bind_all', '--load_fast=false']
     tb_process = subprocess.Popen(tb_command)

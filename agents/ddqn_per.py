@@ -7,6 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
+from torch.nn.utils import clip_grad_norm_
 
 
 import gym
@@ -51,8 +52,8 @@ class Net(nn.Module):
                                stride=1)
         self.flatten = nn.Flatten()
         # linear layers, the input size depends on the output of the convolutional layers
-        self.fc1 = nn.Linear(3136, 512)
-        self.fc2 = nn.Linear(512, output_dim)
+        self.fc1 = nn.Linear(64, 256)
+        self.fc2 = nn.Linear(256, output_dim)
     
     def forward(self, 
                 x: torch.Tensor) -> torch.Tensor:
@@ -186,10 +187,10 @@ class Config:
                  update_freq: int=3, 
                  sync_freq: int=1000, 
                  episodes: int=1000,
-                 feature_size: int=512,
-                 n_scaling: float=0.5,
-                 beta_icm: float = 0.5,
-                 gamma_icm: float = 0.5) -> None:
+                 feature_size: int=288,
+                 n_scaling: float=1.0,
+                 beta_icm: float = 0.2,
+                 lambda_icm: float = 0.1) -> None:
         """
         Initializes the configuration settings.
 
@@ -209,10 +210,10 @@ class Config:
             - update_freq (int): Frequency of updating the online network. Default to 3.
             - sync_freq (int): Frequency of updating the target network. Default to 1000.
             - episodes (int): Number of episodes to train. Default to 2000.
-            - feature_size (int): Size of the feature embedding. Default to 512.
+            - feature_size (int): Size of the feature embedding. Default to 288.
             - n_scaling (float): Weights the importance of the policy loss against the intrinsic reward. Default to 0.5.
             - beta_icm (float): Weights the importance of the forward loss against the inverse loss. Default to 0.5.
-            - gamma_icm (float): Discount factor for the intrinsic reward. Default to 0.5.
+            - lambda_icm (float): Discount factor for the intrinsic reward. Default to 0.5.
         """
         self.skip_frame = skip_frame
         self.exploration_rate = exploration_rate
@@ -232,7 +233,7 @@ class Config:
         self.feature_size = feature_size
         self.n_scaling = n_scaling
         self.beta_icm = beta_icm
-        self.gamma_icm = gamma_icm
+        self.lambda_icm = lambda_icm
 
 
 class DDQN(nn.Module):
@@ -283,11 +284,11 @@ class DDQN(nn.Module):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.prioritized = prioritized
         self.icm = icm
-        self.config = Config(skip_frame = 2, exploration_rate=1, exploration_rate_decay=0.999, exploration_rate_min=0.1,
-                             memory_size=10000, burn_in=200, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
+        self.config = Config(skip_frame = 2, exploration_rate=1.0, exploration_rate_decay=0.999, exploration_rate_min=0.1,
+                             memory_size=10000, burn_in=2000, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
                              gamma=0.99, batch_size=32, lr=0.0001,
-                             update_freq=3, sync_freq=1000, episodes=episodes,
-                             feature_size=512, n_scaling=0.5, beta_icm=0.5, gamma_icm=0.5)
+                             update_freq=3, sync_freq=100, episodes=episodes,
+                             feature_size=288, n_scaling=1.0, beta_icm=0.2, lambda_icm=0.1)
 
     def define_logs_metric(self, 
                            tb_writer: SummaryWriter=None, 
@@ -315,7 +316,7 @@ class DDQN(nn.Module):
         # apply reset wrapper and other wrappers
         env = SkipFrame(env, skip_frame=self.config.skip_frame)
         env = GrayScaleObservation(env)
-        env = ResizeObservation(env, shape=84)
+        env = ResizeObservation(env, shape=42)
         env = JoypadSpace(env, SIMPLE_MOVEMENT)
         if gym.__version__ < '0.26':
             env = FrameStack(env, 
@@ -325,7 +326,7 @@ class DDQN(nn.Module):
             env = FrameStack(env, 
                              num_stack=4)
             
-        self.state_dim = (4, 84, 84)
+        self.state_dim = (4, 42, 42)
         self.num_actions=env.action_space.n
         return env
 
@@ -346,17 +347,12 @@ class DDQN(nn.Module):
         self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)        
 
         if self.icm:
-            self.feature_size = self.config.feature_size
-            self.beta = self.config.beta_icm
-            self.gamma = self.config.gamma_icm
-            self.n_scaling = self.config.n_scaling
-
-            self.state_embedding = embedding(num_channels=4, output_dim=self.feature_size).float().to(self.device)
+            self.state_embedding = embedding(num_channels=4, output_dim=self.config.feature_size).float().to(self.device)
             self.state_embedding_optimizer = torch.optim.Adam(self.state_embedding.parameters(), lr=self.config.lr)
             self.state_embedding_loss_fn = torch.nn.MSELoss()
 
-            self.inverse_model = inverseModel(feature_size=self.feature_size, num_actions=self.num_actions).float().to(self.device)
-            self.forward_model = forwardModel(action_dim=self.num_actions, out_channels=512).float().to(self.device)
+            self.inverse_model = inverseModel(feature_size=self.config.feature_size, num_actions=self.num_actions).float().to(self.device)
+            self.forward_model = forwardModel(action_dim=self.num_actions, out_channels=288).float().to(self.device)
 
             self.inverse_optimizer = torch.optim.Adam(self.inverse_model.parameters(), lr=self.config.lr)
             self.forward_optimizer = torch.optim.Adam(self.forward_model.parameters(), lr=self.config.lr)
@@ -437,21 +433,10 @@ class DDQN(nn.Module):
         return intrinsic_reward
 
 
-    def learn(self):
+    def learn(self, state, action, next_state, reward, done, info):
         """#TODO: add docstring
         #TODO simplify this function
         """
-        if self.curr_step_global % self.config.sync_freq == 0:
-            self.net.target_net.load_state_dict(self.net.online_net.state_dict())
-
-        if self.curr_step_global < self.config.burn_in:
-            return None, None
-
-        if self.curr_step_global % self.config.update_freq != 0:
-            return None, None
-
-        state, next_state, action, reward, done, info = self.sample()
-
         q_est = self.net(state, model="online")[
             np.arange(0, self.config.batch_size), action]
 
@@ -463,9 +448,9 @@ class DDQN(nn.Module):
             predicted_next_state_feature = self.forward_model(state_feature, action)
 
             LI_loss = self.inverse_loss_fn(predicted_action, action)
-            LF_loss = self.forward_loss_fn(predicted_next_state_feature, next_state_feature)*( self.n_scaling / 2 ) 
+            LF_loss = self.forward_loss_fn(predicted_next_state_feature, next_state_feature) / 2  
 
-            intrinsic_reward = torch.norm(predicted_next_state_feature - next_state_feature, p=2)
+            intrinsic_reward = self.forward_loss_fn(predicted_next_state_feature, next_state_feature)*(self.config.n_scaling / 2)
 
         with torch.no_grad():
             next_state_Q = self.net(next_state, model="online")
@@ -490,7 +475,7 @@ class DDQN(nn.Module):
             loss = self.loss_fn(q_est, q_tgt)
 
         if self.icm:
-            total_loss = -self.gamma * loss + (1 - self.beta) * LI_loss + self.beta * LF_loss
+            total_loss = -self.config.lambda_icm * loss + (1 - self.config.beta) * LI_loss + self.config.beta * LF_loss
 
             self.optimizer.zero_grad()
             self.forward_optimizer.zero_grad()
@@ -498,6 +483,11 @@ class DDQN(nn.Module):
             self.state_embedding_optimizer.zero_grad()
 
             total_loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(self.net.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.state_embedding.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.forward_model.parameters(), 1.0)
+            torch.nn.utils.clip_grad_norm_(self.inverse_model.parameters(), 1.0)
             self.optimizer.step()
             self.forward_optimizer.step()
             self.inverse_optimizer.step()
@@ -509,36 +499,45 @@ class DDQN(nn.Module):
             self.optimizer.step()
         
         if self.tb_writer and self.curr_step_global % self.loss_log_freq == 0:
+            if self.icm:
+                self.tb_writer.add_scalar("Total_Loss/train", total_loss.item(), self.curr_step_global)
+                self.tb_writer.add_scalar("Forward_loss/train", LF_loss.item(), self.curr_step_global)
+                self.tb_writer.add_scalar("Inverse_loss/train", LI_loss.item(), self.curr_step_global)
+                self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.curr_step_global)
             self.tb_writer.add_scalar("Loss/train", loss.item(), self.curr_step_global)
             self.tb_writer.add_scalar("Td_error/train", td_error.mean(), self.curr_step_global)
 
-        return td_error, loss.item()
+        return td_error, loss.item(), total_reward
         
     def train(self):
         """#TODO: add docstring"""
         rewards = []
         episodes = self.config.episodes
 
+        print("Burn-in...")
+        # Burn-in logic
+        reset_output = self.env.reset()
+        state, _ = reset_output
+        while self.curr_step_global < self.config.burn_in:
+            action = self.act(state)
+            next_state, reward, done, _, info = self.env.step(action) 
+            self.store(state, next_state, action, reward, done)
+            if done:
+                state, _  = self.env.reset()
+
         print("Starting...")
         print(f"Training for: {episodes} episodes\n")
+        self.curr_step_global = 0
+        self.curr_step_local = 0
         for e in range(episodes):
-            reset_output = self.env.reset()
+            state, _ = self.env.reset()
             self.ep = e
-
-            state, _ = reset_output
-            
             total_reward = 0
+
             while True:
-                action = self.act(state)
+                state, next_state, action, reward, done, info = self.sample()
+                q, loss, reward = self.learn()
                 
-                next_state, reward, done, _, info = self.env.step(action)
-                
-                total_reward += reward
-
-                self.store(state, next_state, action, reward, done)
-
-                q, loss = self.learn()
-
                 state = next_state
 
                 if done or info["flag_get"]:
