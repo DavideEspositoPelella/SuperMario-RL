@@ -5,238 +5,26 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.utils import clip_grad_norm_
 from torch.utils.tensorboard import SummaryWriter
 import torchvision
-from torch.nn.utils import clip_grad_norm_
-
+from tensordict import TensorDict
+from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage, TensorDictReplayBuffer
 
 import gym
-from gym.spaces import Box
 from gym.wrappers import FrameStack 
-from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
-
 import gym_super_mario_bros
-
+from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 from nes_py.wrappers import JoypadSpace
 
-from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage, TensorDictReplayBuffer
-from tensordict import TensorDict
-
-from agents.icm import ICMModel
-
-
-class Net(nn.Module):
-    def __init__(self, 
-                 num_channels: int=4,
-                 output_dim: int=5) -> None:
-        """         
-        Initializes the network for the agent.
-
-        Args:
-            - num_channels (int): Number of channels in input. Default to 4.
-            - output_dim (int): Output dimension. Default to 5. 
-        """
-        super(Net, self).__init__()
-        # convolutional layers
-        self.conv1 = nn.Conv2d(in_channels=num_channels,
-                               out_channels=32,
-                               kernel_size=8, 
-                               stride=4)
-        self.conv2 = nn.Conv2d(in_channels=32,
-                               out_channels=64,
-                               kernel_size=4,
-                               stride=2)
-        self.conv3 = nn.Conv2d(in_channels=64,
-                               out_channels=64,
-                               kernel_size=3,
-                               stride=1)
-        self.flatten = nn.Flatten()
-        # linear layers, the input size depends on the output of the convolutional layers
-        self.fc1 = nn.Linear(64, 256)
-        self.fc2 = nn.Linear(256, output_dim)
-    
-    def forward(self, 
-                x: torch.Tensor) -> torch.Tensor:
-        """ 
-        Implements the forward pass.
-        
-        Args:
-            - x (torch.Tensor): Input tensor.
-        """
-        # convolutional layers
-        x = F.relu(self.conv1(x)) 
-        x = F.relu(self.conv2(x)) 
-        x = F.relu(self.conv3(x))
-        # global max pooling 
-        x = self.flatten(x)
-        # linear layers
-        x = F.relu(self.fc1(x)) 
-        x = self.fc2(x) 
-        return x 
-    
-
-class DDQNetwork(nn.Module):
-    def __init__(self, 
-                 input_dim: int,
-                 output_dim: int) -> None:
-        """
-        Initializes the Deep Q-Network.
-
-        Args:
-            - input_dim (int): Input dimension.
-            - output_dim (int): Output dimension.
-        """
-        c = input_dim[0]
-        super(DDQNetwork, self).__init__()
-        # initialize the online and the target networks
-        self.online_net = Net(c, output_dim) 
-        self.target_net = Net(c, output_dim)
-        self.target_net.load_state_dict(self.online_net.state_dict())
-        for p in self.target_net.parameters():
-            p.requires_grad = False
-
-    def forward(self, 
-                input: torch.Tensor, 
-                model:  str='online') -> torch.Tensor:
-        """
-        Implements the forward pass.
-        
-        Args:
-            - input (torch.Tensor): Input tensor.
-            - model (str): Model to use. Can be 'online' or 'target'. Default to 'online'.
-        """
-        if model == 'online':
-            return self.online_net(input)
-        elif model == 'target':
-            return self.target_net(input)
-        
-
-class SkipFrame(gym.Wrapper):
-    def __init__(self, 
-                 env, 
-                 skip_frame):
-        super().__init__(env)
-        self._skip_frame = skip_frame
-
-    def step(self, action):
-        """Repeat action, and sum reward"""
-        total_reward = 0.0
-        for i in range(self._skip_frame):
-            obs, reward, done, trunk, info = self.env.step(action)
-            total_reward += reward
-            if done:
-                break
-        return obs, total_reward, done, trunk, info
+from models.icm import ICMModel
+from models.ddqn import DDQNetwork
+from models.config import Config
+from wrappers.wrappers import SkipFrame, GrayScaleObservation, ResizeObservation
 
 
-class GrayScaleObservation(gym.ObservationWrapper):
-    def __init__(self, env):
-        super().__init__(env)
-        obs_shape = self.observation_space.shape[:2]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
 
-    def observation(self, observation):
-        observation = np.transpose(observation, (2, 0, 1))
-        observation = torch.tensor(observation.copy(), dtype=torch.float)
-        transform = torchvision.transforms.Grayscale()
-        observation = transform(observation)
-        return observation
-
-
-class ResizeObservation(gym.ObservationWrapper):
-    def __init__(self, env, shape):
-        super().__init__(env)
-        if isinstance(shape, int):
-            self.shape = (shape, shape)
-        else:
-            self.shape = tuple(shape)
-
-        obs_shape = self.shape + self.observation_space.shape[2:]
-        self.observation_space = Box(low=0, high=255, shape=obs_shape, dtype=np.uint8)
-
-    def observation(self, observation):
-        transform = torchvision.transforms.Compose(
-            [torchvision.transforms.Resize(self.shape, antialias=True), torchvision.transforms.Normalize(0, 255)]
-        )
-        observation = transform(observation).squeeze(0)
-        return observation
-
-
-class ResetWrapper(gym.Wrapper):
-    def reset(self, **kwargs):
-        obs, info = super().reset(**kwargs)
-        if isinstance(obs, np.ndarray) and len(obs.shape) > 1:
-            return [(single_obs, {}) for single_obs in obs], info
-        return obs, info
-    
-
-class Config:
-    def __init__(self, 
-                 skip_frame: int=2,
-                 exploration_rate: float=1,
-                 exploration_rate_decay: float=0.999,
-                 exploration_rate_min: float=0.1,
-                 memory_size: int=10000,
-                 burn_in: int=100,
-                 epsilon_buffer: float=1e-8, 
-                 alpha: float=0.6, 
-                 beta: float=0.4, 
-                 gamma: float=0.99,
-                 batch_size: int=32,  
-                 lr: float=0.0001,
-                 update_freq: int=3, 
-                 sync_freq: int=1000, 
-                 episodes: int=1000,
-                 feature_size: int=288,
-                 n_scaling: float=1.0,
-                 beta_icm: float = 0.2,
-                 lambda_icm: float = 0.1) -> None:
-        """
-        Initializes the configuration settings.
-
-        Args:
-            - skip_frame (int): Number of frames to skip. Default to 2.
-            - exploration_rate (float): Exploration rate. Default to 1.
-            - exploration_rate_decay (float): Decay value for the exploration rate. Default to 0.999.
-            - exploration_rate_min (float): Minimum value for the exploration rate. Default to 0.1.
-            - memory_size (int): Size of the buffer. Default to 10000.
-            - burn_in (int): Number of experiences to burn in. Default to 100.
-            - alpha (float): Priority exponent. Default to 0.6.
-            - beta (float): Importance sampling exponent. Default to 0.4.
-            - epsilon_buffer (float): Small constant to avoid zero priority. Default to 1e-8.
-            - gamma (float): Discount factor. Default to 0.99.
-            - batch_size (int): Batch size for training. Default to 32.
-            - lr (float): Learning rate. Default to 0.0001.
-            - update_freq (int): Frequency of updating the online network. Default to 3.
-            - sync_freq (int): Frequency of updating the target network. Default to 1000.
-            - episodes (int): Number of episodes to train. Default to 2000.
-            - feature_size (int): Size of the feature embedding. Default to 288.
-            - n_scaling (float): Weights the importance of the policy loss against the intrinsic reward. Default to 0.5.
-            - beta_icm (float): Weights the importance of the forward loss against the inverse loss. Default to 0.5.
-            - lambda_icm (float): Discount factor for the intrinsic reward. Default to 0.5.
-        """
-        self.skip_frame = skip_frame
-        self.exploration_rate = exploration_rate
-        self.exploration_rate_decay = exploration_rate_decay
-        self.exploration_rate_min = exploration_rate_min
-        self.memory_size = memory_size
-        self.burn_in = burn_in
-        self.alpha = alpha
-        self.beta = beta
-        self.epsilon_buffer = epsilon_buffer
-        self.gamma = gamma
-        self.batch_size = batch_size
-        self.lr = lr
-        self.update_freq = update_freq
-        self.sync_freq = sync_freq
-        self.episodes = episodes
-        self.feature_size = feature_size
-        self.n_scaling = n_scaling
-        self.beta_icm = beta_icm
-        self.lambda_icm = lambda_icm
-
-
-class DDQN(nn.Module):
+class DDQNAgent(nn.Module):
 
     def __init__(self, 
                  episodes: int=2000, 
@@ -261,7 +49,7 @@ class DDQN(nn.Module):
             - save_freq (int): Save frequency. Default to 100.
         """
 
-        super(DDQN, self).__init__()
+        super(DDQNAgent, self).__init__()
         # initialize the configuration settings
         self.configure_agent(episodes=episodes, prioritized=prioritized, icm=icm)
         self.define_logs_metric(tb_writer=tb_writer, log_dir=log_dir, save_dir=save_dir, 
