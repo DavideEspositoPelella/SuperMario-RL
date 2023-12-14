@@ -7,7 +7,6 @@ from args import get_args
 
 
 from agents.ddqn_per import DDQN
-from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
 import torch
 
 from torch.utils.tensorboard import SummaryWriter
@@ -60,7 +59,7 @@ def init_tensorboard(log_dir: str):
     tb_writer = SummaryWriter(log_dir=current_log_dir)
     tb_command = ['tensorboard', '--logdir', log_dir, '--bind_all', '--load_fast=false']
     tb_process = subprocess.Popen(tb_command)
-    webbrowser.open("http://localhost:6016")
+    webbrowser.open("http://localhost:6006")
     
     return tb_writer, tb_process, current_log_dir
 

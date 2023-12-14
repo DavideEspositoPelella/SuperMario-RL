@@ -70,6 +70,7 @@ python3 main.py [OPTIONS]
 - '--log-dir <path>': Directory to save logs. Default is ./logs/.
 - '--save-dir <path>': Directory to save trained models. Default is ./trained_models/.
 - '--model <model>': Specify if want to load a specific model to continue the training or evaluate.
+- '--tb': Enable the tensorboard.
 
 ### Examples
 
@@ -80,7 +81,7 @@ python3 main.py -t
 
 2. Run training with a specific algorithm and number of episodes
 ```bash
-python3 main.py -t --episodes 5000 --algorithm ddqn_per --icm --model mario_net_10.chkpt
+python3 main.py -t --episodes 5000 --algorithm ddqn_per --icm --model mario_net_10.chkpt --tb
 ```
 3. Run evaluation
 
