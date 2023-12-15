@@ -212,7 +212,7 @@ class DDQNAgent(nn.Module):
         loss = torch.clamp(loss, -1, 1)
             
         if self.icm:
-            loss = self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
+            loss = -self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
             
         self.optimizer.zero_grad()
         loss.backward()
@@ -255,6 +255,7 @@ class DDQNAgent(nn.Module):
             self.ep = e
 
             while True:
+                print(f"Episode: {self.ep}, Step: {self.curr_step_global}, Local Step: {self.curr_step_local}", end="\r")
                 action = self.act(state)
                 
                 next_state, extrinsic_reward, done, _, info = self.env.step(action)
@@ -307,6 +308,7 @@ class DDQNAgent(nn.Module):
     def load(self, model_path: str=None):
         """Load the agent's state from a checkpoint."""
         if model_path == 'False':
+            print("No model specified")
             raise ValueError(f"{model_path} does not exist")
 
         load_path = self.save_dir / model_path

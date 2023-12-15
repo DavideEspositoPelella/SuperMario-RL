@@ -7,6 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 import gym
 
 from agents.ddqn_agent import DDQNAgent
+from agents.a3c_agent import A3CAgent
 from util.util import create_dir, init_tensorboard, close_tb
 from config import Config
 import make_env
@@ -54,6 +55,13 @@ def train(env:gym.Env,
                           tb_writer=tb_writer,
                           log_dir=log_dir,
                           save_dir=save_dir)
+    elif algorithm == 'a3c':
+        agent = A3CAgent(env=env,
+                         config=config,
+                         icm=icm,
+                         tb_writer=tb_writer,
+                         log_dir=log_dir,
+                         save_dir=save_dir)
     else:
         raise ValueError("Invalid algorithm selected")
     
@@ -99,11 +107,21 @@ def evaluate(env: gym.Env,
                               tb_writer=tb_writer,
                               log_dir=log_dir,
                               save_dir=save_dir)
+        elif algorithm == 'a3c':
+            
+            agent = A3CAgent(env=env,
+                             config=config,
+                             icm=icm,
+                             tb_writer=tb_writer,
+                             log_dir=log_dir,
+                             save_dir=save_dir)
         else:
             raise ValueError("Invalid algorithm selected")
         if args.model != 'False':
             agent.load(args.model)
             agent.evaluate(env)
+        else:
+            print("Error: No model to evaluate provided \n")
     
 
 def main():
