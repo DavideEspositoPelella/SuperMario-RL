@@ -30,13 +30,14 @@ class ICMModel(nn.Module):
                       stride=2,
                       padding=1),
             nn.BatchNorm2d(num_features=32),
-            nn.LeakyReLU(),
+            nn.ELU(),
             nn.Conv2d(in_channels=32,
                       out_channels=32,
                       kernel_size=3,
                       stride=2,
                       padding=1),
             nn.BatchNorm2d(num_features=32), 
+            nn.ELU(),
             nn.Flatten(),
             nn.Linear(288, feature_size)
         )
@@ -45,46 +46,19 @@ class ICMModel(nn.Module):
                                          nn.ReLU(),
                                          nn.Linear(512, num_actions))
 
-        self.residual = [nn.Sequential(
-            nn.Linear(num_actions + feature_size, 512),
-            nn.LeakyReLU(),
-            nn.Linear(512, feature_size),
-        ).to(self.device)] * 8
-
-        self.forward_net_1 = nn.Sequential(
+        self.forward_net = nn.Sequential(
             nn.Linear(num_actions + feature_size, feature_size),
-            nn.LeakyReLU()
-        )
-        self.forward_net_2 = nn.Sequential(
-            nn.Linear(num_actions + feature_size, feature_size),
-        )
+            nn.ReLU(),
+            nn.Linear(feature_size, feature_size))
 
-        for p in self.modules():
-            if isinstance(p, nn.Conv2d):
-                nn.init.kaiming_uniform_(p.weight)
-                p.bias.data.zero_()
+    def forward(self, state, next_state, action):    
+        encoded_state = self.feature(state)
+        encoded_next_state = self.feature(next_state)
+        
+        concat_states = torch.cat((encoded_state, encoded_next_state), 1)
+        pred_action = self.inverse_net(concat_states)
 
-            if isinstance(p, nn.Linear):
-                nn.init.kaiming_uniform_(p.weight, a=1.0)
-                p.bias.data.zero_()
-
-    def forward(self, state, next_state, action):
-    
-        encode_state = self.feature(state)
-        encode_next_state = self.feature(next_state)
-        pred_action = torch.cat((encode_state, encode_next_state), 1)
-        pred_action = self.inverse_net(pred_action)
-
-        pred_next_state_feature_orig = torch.cat((encode_state, action), 1)
-
-        pred_next_state_feature_orig = self.forward_net_1(pred_next_state_feature_orig)
-
-        for i in range(4):
-            pred_next_state_feature = self.residual[i * 2](torch.cat((pred_next_state_feature_orig, action), 1))
-            pred_next_state_feature_orig = self.residual[i * 2 + 1](
-                torch.cat((pred_next_state_feature, action), 1)) + pred_next_state_feature_orig
-
-        pred_next_state_feature = self.forward_net_2(torch.cat((pred_next_state_feature_orig, action), 1))
-
-        real_next_state_feature = encode_next_state
-        return real_next_state_feature, pred_next_state_feature, pred_action
+        concat_state_action = torch.cat((encoded_state, action), 1)
+        pred_next_state_feat = self.forward_net(concat_state_action)
+        
+        return pred_next_state_feat, encoded_next_state, pred_action

@@ -16,7 +16,7 @@ class Config:
                  sync_freq: int=1000, 
                  episodes: int=1000,
                  feature_size: int=288,
-                 n_scaling: float=1.0,
+                 eta: float=1.0,
                  beta_icm: float = 0.2,
                  lambda_icm: float = 0.1) -> None:
         """
@@ -39,7 +39,7 @@ class Config:
             - sync_freq (int): Frequency of updating the target network. Default to 1000.
             - episodes (int): Number of episodes to train. Default to 2000.
             - feature_size (int): Size of the feature embedding. Default to 288.
-            - n_scaling (float): Weights the importance of the policy loss against the intrinsic reward. Default to 0.5.
+            - eta (float): Scaling factor for the intrinsic reward. Default to 1.0.
             - beta_icm (float): Weights the importance of the forward loss against the inverse loss. Default to 0.5.
             - lambda_icm (float): Discount factor for the intrinsic reward. Default to 0.5.
         """
@@ -59,6 +59,6 @@ class Config:
         self.sync_freq = sync_freq
         self.episodes = episodes
         self.feature_size = feature_size
-        self.n_scaling = n_scaling
+        self.eta = eta
         self.beta_icm = beta_icm
         self.lambda_icm = lambda_icm

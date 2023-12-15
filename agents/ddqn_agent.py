@@ -73,10 +73,10 @@ class DDQNAgent(nn.Module):
         self.prioritized = prioritized
         self.icm = icm
         self.config = Config(skip_frame = 2, exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.1,
-                             memory_size=10000, burn_in=100, alpha=0.6, beta=0.5, epsilon_buffer=0.01,
-                             gamma=0.99, batch_size=32, lr=0.001,
+                             memory_size=10000, burn_in=2000, alpha=0.7, beta=0.5, epsilon_buffer=0.01,
+                             gamma=0.99, batch_size=64, lr=0.001,
                              update_freq=10, sync_freq=100, episodes=episodes,
-                             feature_size=288, n_scaling=1.0, beta_icm=0.2, lambda_icm=0.1)
+                             feature_size=288, eta=1.0, beta_icm=0.2, lambda_icm=0.1)
 
     def define_logs_metric(self, 
                            tb_writer: SummaryWriter=None, 
@@ -214,9 +214,7 @@ class DDQNAgent(nn.Module):
         """#TODO: add docstring
         #TODO simplify this function
         """
-        if self.curr_step_global % self.config.sync_freq == 0:
-            self.net.target_net.load_state_dict(self.net.online_net.state_dict())
-
+        
         state, next_state, action, reward, done, info = self.sample()
         torch.clamp(reward, -1, 1)
         one_hot_action = F.one_hot(action, num_classes=self.num_actions).float()
@@ -227,7 +225,7 @@ class DDQNAgent(nn.Module):
             inverse_loss = self.inverse_loss_fn(pred_action, action)
             forward_loss = self.forward_loss_fn(pred_next_state_feat, next_state_feat)  
 
-            intrinsic_reward = intrinsic_reward = self.config.n_scaling * F.mse_loss(next_state_feat, pred_next_state_feat, reduction='none').mean(-1)
+            intrinsic_reward = self.config.eta * F.mse_loss(next_state_feat, pred_next_state_feat, reduction='none').mean(-1)
             total_reward = reward + intrinsic_reward
 
         q_est = self.net(state, model="online")[np.arange(0, self.config.batch_size), action]
@@ -269,7 +267,6 @@ class DDQNAgent(nn.Module):
         
     def train(self):
         """#TODO: add docstring"""
-        rewards = []
         episodes = self.config.episodes
 
         # Burn-in
@@ -291,27 +288,25 @@ class DDQNAgent(nn.Module):
         for e in tqdm(range(episodes)):
             state, _ = self.env.reset()
             self.ep = e
-            total_reward = 0
 
             while True:
                 action = self.act(state)
                 
-                next_state, reward, done, _, info = self.env.step(action)
+                next_state, extrinsic_reward, done, _, info = self.env.step(action)
 
-                extrinsic_reward = reward
                 self.store(state, next_state, action, extrinsic_reward, done)
 
                 if self.curr_step_global % self.config.update_freq == 0:
                     td_err, loss = self.learn()
                 
+                if self.curr_step_global % self.config.sync_freq == 0:
+                    self.net.target_net.load_state_dict(self.net.online_net.state_dict())
+
                 state = next_state
 
                 if done or info["flag_get"]:
                     break
 
-            rewards.append(total_reward)
-            if self.tb_writer:
-                self.tb_writer.add_scalar("Reward/train", np.mean(rewards), self.curr_step_global)
             if self.ep % self.save_freq == 0:
                 self.save()
         print("Training complete.\n")
