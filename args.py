@@ -41,7 +41,7 @@ def get_args():
                         default='./checkpoints/',
                         help='Where to save agent logs, Default to ./checkpoints/')
     parser.add_argument('--model', 
-                        type=str, 
+                        type=str,
                         default='mario_net_0.chkpt', 
                         help='The model to continue training from')
     

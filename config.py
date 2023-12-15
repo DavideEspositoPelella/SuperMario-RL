@@ -1,6 +1,8 @@
 class Config:
     def __init__(self, 
                  skip_frame: int=2,
+                 stack: int=4,
+                 resize_shape: int=42,
                  exploration_rate: float=1,
                  exploration_rate_decay: float=0.999,
                  exploration_rate_min: float=0.1,
@@ -18,12 +20,16 @@ class Config:
                  feature_size: int=288,
                  eta: float=1.0,
                  beta_icm: float = 0.2,
-                 lambda_icm: float = 0.1) -> None:
+                 lambda_icm: float = 0.1,
+                 log_freq: int=100,
+                 save_freq: int=100) -> None:
         """
         Initializes the configuration settings.
 
         Args:
             - skip_frame (int): Number of frames to skip. Default to 2.
+            - stack (int): Number of frames to stack. Default to 4.
+            - resize_shape (int): Size of the resized frame. Default to 42.
             - exploration_rate (float): Exploration rate. Default to 1.
             - exploration_rate_decay (float): Decay value for the exploration rate. Default to 0.999.
             - exploration_rate_min (float): Minimum value for the exploration rate. Default to 0.1.
@@ -42,8 +48,13 @@ class Config:
             - eta (float): Scaling factor for the intrinsic reward. Default to 1.0.
             - beta_icm (float): Weights the importance of the forward loss against the inverse loss. Default to 0.5.
             - lambda_icm (float): Discount factor for the intrinsic reward. Default to 0.5.
+            - log_freq (int): Log frequency. Default to 100.
+            - save_freq (int): Save frequency. Default to 100. 
+
         """
         self.skip_frame = skip_frame
+        self.stack = stack
+        self.resize_shape = resize_shape
         self.exploration_rate = exploration_rate
         self.exploration_rate_decay = exploration_rate_decay
         self.exploration_rate_min = exploration_rate_min
@@ -62,3 +73,5 @@ class Config:
         self.eta = eta
         self.beta_icm = beta_icm
         self.lambda_icm = lambda_icm
+        self.log_freq = log_freq   
+        self.save_freq = save_freq

@@ -7,116 +7,80 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.utils import clip_grad_norm_
 from torch.utils.tensorboard import SummaryWriter
-import torchvision
 from tensordict import TensorDict
 from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage, TensorDictReplayBuffer
 
 import gym
-from gym.wrappers import FrameStack 
-import gym_super_mario_bros
-from gym_super_mario_bros.actions import SIMPLE_MOVEMENT
-from nes_py.wrappers import JoypadSpace
 
 from models.icm import ICMModel
 from models.ddqn import DDQNetwork
-from models.config import Config
-from wrappers.wrappers import SkipFrame, GrayScaleObservation, ResizeObservation
-
+from config import Config
 
 
 class DDQNAgent(nn.Module):
 
     def __init__(self, 
-                 episodes: int=2000, 
+                 env: gym.Env,
+                 config: Config,
                  prioritized: bool=False,
                  icm: bool=False,
                  tb_writer: SummaryWriter=None, 
                  log_dir: Path=Path('./logs/'),
-                 save_dir: Path=Path('./checkpoints/'),
-                 log_freq: int=100,
-                 save_freq: int=100) -> None:
+                 save_dir: Path=Path('./checkpoints/')) -> None:
         """
         Initializes the DDQN agent.
 
         Args:
-            - episodes (int): Number of episodes to train. Default to 2000.
+            - env: The environment.
+            - config (Config): The configuration object. 
             - prioritized (bool): Whether to use prioritized replay buffer. Default to False.
             - icm (bool): Whether to use ICM. Default to False.
             - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object. Default to None.
             - log_dir (Path): The directory where to save TensorBoard logs. Default to None.
             - save_dir (Path): The directory where to save trained models. Default to None.
-            - log_freq (int): Log frequency. Default to 100.
-            - save_freq (int): Save frequency. Default to 100.
         """
 
         super(DDQNAgent, self).__init__()
         # initialize the configuration settings
-        self.configure_agent(episodes=episodes, prioritized=prioritized, icm=icm)
-        self.define_logs_metric(tb_writer=tb_writer, log_dir=log_dir, save_dir=save_dir, 
-                                log_freq=log_freq, save_freq=save_freq)
-        self.env = self.make_env()
-        self.define_network_components()
-    
+        self.configure_agent(env=env, config=config, prioritized=prioritized, icm=icm)
+        self.define_logs_metric(tb_writer=tb_writer, log_dir=log_dir, save_dir=save_dir)
+        
     def configure_agent(self,
-                        episodes: int=2000,
+                        env: gym.Env,
+                        config: Config,
                         prioritized: bool=False,
                         icm: bool=False) -> None:
         """
         Initializes the configuration settings.
 
         Args:
-            - episodes (int): Number of episodes to train. Default to 2000.
+            - env (gym.Env): The environment.
+            - config (Config): The configuration object.
             - prioritized (bool): Whether to use prioritized replay buffer. Default to False.
             - icm (bool): Whether to use ICM. Default to False.
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.config = config
+        self.env = env
+        self.state_dim = (4, 42, 42)
+        self.num_actions=self.env.action_space.n
         self.prioritized = prioritized
         self.icm = icm
-        self.config = Config(skip_frame = 2, exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.1,
-                             memory_size=10000, burn_in=2000, alpha=0.7, beta=0.5, epsilon_buffer=0.01,
-                             gamma=0.99, batch_size=64, lr=0.001,
-                             update_freq=10, sync_freq=100, episodes=episodes,
-                             feature_size=288, eta=1.0, beta_icm=0.2, lambda_icm=0.1)
+        self.define_network_components()
+
 
     def define_logs_metric(self, 
                            tb_writer: SummaryWriter=None, 
                            log_dir: Path=None,
-                           save_dir: Path=None,
-                           log_freq: int=100, 
-                           save_freq: int=100):
+                           save_dir: Path=None):
         """#TODO: add docstring"""
         self.tb_writer = tb_writer
         self.log_dir = log_dir
         self.save_dir = save_dir
-        self.loss_log_freq = log_freq
-        self.save_freq = save_freq
+        self.loss_log_freq = self.config.log_freq
+        self.save_freq = self.config.save_freq
         self.curr_step_global = 0
         self.curr_step_local = 0
-  
-    def make_env(self):
-        env_ID = "SuperMarioBros-1-1-v0"
-        if gym.__version__ < '0.26':
-            env = gym_super_mario_bros.make(env_ID, new_step_api=True)
-
-        else:
-            env = gym_super_mario_bros.make(env_ID, render_mode='human', apply_api_compatibility=True)
-
-        # apply reset wrapper and other wrappers
-        env = SkipFrame(env, skip_frame=self.config.skip_frame)
-        env = GrayScaleObservation(env)
-        env = ResizeObservation(env, shape=42)
-        env = JoypadSpace(env, SIMPLE_MOVEMENT)
-        if gym.__version__ < '0.26':
-            env = FrameStack(env, 
-                             num_stack=4, 
-                             new_step_api=True)
-        else:
-            env = FrameStack(env, 
-                             num_stack=4)
-            
-        self.state_dim = (4, 42, 42)
-        self.num_actions=env.action_space.n
-        return env
 
     def define_network_components(self):
         """#TODO: add docstring"""
@@ -312,21 +276,21 @@ class DDQNAgent(nn.Module):
         print("Training complete.\n")
         return
     
-    # TODO modify this function to save also icm weights
     def save(self):
+        """Save the model to a checkpoint."""
         save_path = (self.save_dir / f"mario_net_{self.ep}.chkpt")
+
         torch.save(
             dict(model=self.net.state_dict(), 
-                 exploration_rate=self.config.exploration_rate), 
-                 save_path)
-        print(f"MarioNet saved to {save_path} at step {self.curr_step_global}")
-
-    # TODO modify this function to load also icm weights
+                 icm_model=self.icm_model.state_dict() if self.icm else None,
+                #  ddqn_agent=self
+                 ), save_path)
+        
     def load(self, model_path: str=None):
         """Load a model from a checkpoint"""
 
         if model_path == "mario_net_0.chkpt":
-            print("No model to load")
+            # print("No model to load")
             return
         
         load_path = self.save_dir / model_path
@@ -335,12 +299,12 @@ class DDQNAgent(nn.Module):
                 raise ValueError(f"{load_path} does not exist")
 
         ckp = torch.load(load_path, map_location=self.device)
-        exploration_rate = ckp.get('exploration_rate')
+        print(ckp.keys())
         state_dict = ckp.get('model')
 
-        print(f"\nLoading model at    {load_path}   with exploration rate {exploration_rate}")
-        self.net.load_state_dict(state_dict)
-        self.exploration_rate = exploration_rate
+        # print(f"\nLoading model at    {load_path}   with exploration rate {exploration_rate}")
+        # self.net.load_state_dict(state_dict)
+        # self.exploration_rate = exploration_rate
 
     def to(self, device):
         ret = super().to(device)
@@ -354,7 +318,7 @@ class DDQNAgent(nn.Module):
 
         print(f'\nEvaluating for 5 episodes')
         print('Algorithm: {}'.format('DDQN_PER' if self.prioritized else 'DDQN'))
-        for episode in tqdm(range(5)):
+        for _ in tqdm(range(5)):
             total_reward = 0
             done = False
             state, _ = env.reset()
