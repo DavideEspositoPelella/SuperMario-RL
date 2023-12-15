@@ -255,7 +255,6 @@ class DDQNAgent(nn.Module):
             self.ep = e
 
             while True:
-                print(f"Episode: {self.ep}, Step: {self.curr_step_global}, Local Step: {self.curr_step_local}", end="\r")
                 action = self.act(state)
                 
                 next_state, extrinsic_reward, done, _, info = self.env.step(action)
