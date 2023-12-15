@@ -17,6 +17,7 @@ from models.ddqn import DDQNetwork
 from config import Config
 
 
+
 class DDQNAgent(nn.Module):
 
     def __init__(self, 
@@ -276,35 +277,79 @@ class DDQNAgent(nn.Module):
         print("Training complete.\n")
         return
     
+
     def save(self):
         """Save the model to a checkpoint."""
-        save_path = (self.save_dir / f"mario_net_{self.ep}.chkpt")
+        save_path = self.save_dir / f"mario_net_{self.ep}.chkpt"
 
-        torch.save(
-            dict(model=self.net.state_dict(), 
-                 icm_model=self.icm_model.state_dict() if self.icm else None,
-                #  ddqn_agent=self
-                 ), save_path)
-        
+        state = {
+            'model_state_dict': self.net.state_dict(),
+            'icm_model_state_dict': self.icm_model.state_dict() if self.icm else None,
+            'optimizer_state_dict': self.optimizer.state_dict(),
+            'episode': self.ep,
+            'batch_size': self.config.batch_size,
+            'update_freq': self.config.update_freq,
+            'sync_freq': self.config.sync_freq,
+            'exploration_rate': self.config.exploration_rate,
+            'exploration_decay': self.config.exploration_rate_decay,
+            'memory_size': self.config.memory_size,
+            'burn_in': self.config.burn_in,
+            'alpha': self.config.alpha if self.prioritized else None,
+            'beta': self.config.beta if self.prioritized else None,
+            'gamma': self.config.gamma,
+            'curr_step_global': self.curr_step_global,
+            'curr_step_local': self.curr_step_local,
+            'log_dir': self.log_dir,
+        }
+        torch.save(state, save_path)
+
+
     def load(self, model_path: str=None):
-        """Load a model from a checkpoint"""
+        """Load the agent's state from a checkpoint."""
+        if model_path == 'False':
+            raise ValueError(f"{model_path} does not exist")
 
-        if model_path == "mario_net_0.chkpt":
-            # print("No model to load")
-            return
-        
         load_path = self.save_dir / model_path
         
         if not load_path.exists():
                 raise ValueError(f"{load_path} does not exist")
+        state = torch.load(load_path, map_location=self.device)
+        
+        self.net.load_state_dict(state['model_state_dict'])
+        if self.icm and 'icm_model_state_dict' in state:
+            self.icm_model.load_state_dict(state['icm_model_state_dict'])
+        self.optimizer.load_state_dict(state['optimizer_state_dict'])
+        self.ep = state['episode']
+        self.config.batch_size = state['batch_size']
+        self.config.update_freq = state['update_freq']
+        self.config.sync_freq = state['sync_freq']
+        self.config.exploration_rate = state['exploration_rate']
+        self.config.exploration_rate_decay = state['exploration_decay']
+        self.config.memory_size = state['memory_size']
+        self.config.burn_in = state['burn_in']
+        if self.prioritized:
+            self.config.alpha = state['alpha']
+            self.config.beta = state['beta']
+        self.config.gamma = state['gamma']
+        self.curr_step_global = state.get('curr_step_global', 0)
+        self.curr_step_local = state.get('curr_step_local', 0)
+        self.log_dir = state['log_dir']
 
-        ckp = torch.load(load_path, map_location=self.device)
-        print(ckp.keys())
-        state_dict = ckp.get('model')
+        # Print loaded hyperparameters
+        print("Loaded Hyperparameters:")
+        hyperparameters = [
+            'batch_size', 'update_freq', 'sync_freq', 'exploration_rate', 
+            'exploration_rate_decay', 'memory_size', 'burn_in', 'gamma', 
+            'curr_step_global', 'curr_step_local', 'log_dir'
+        ]
+        if self.prioritized:
+            hyperparameters.extend(['alpha', 'beta'])
 
-        # print(f"\nLoading model at    {load_path}   with exploration rate {exploration_rate}")
-        # self.net.load_state_dict(state_dict)
-        # self.exploration_rate = exploration_rate
+        for key in hyperparameters:
+            if key in state:
+                print(f"{key}: {state[key]}")
+            else:
+                print(f"{key}: Not found in saved state")
 
     def to(self, device):
         ret = super().to(device)
@@ -312,8 +357,8 @@ class DDQNAgent(nn.Module):
         return ret
 
     # TODO is this compliant with the new ICM module?
-    def evaluate(self, episodes: int=5) -> None:
-        env = self.make_env()
+    def evaluate(self, env: gym.Env) -> None:
+        #env = self.make_env()
         rewards = []
 
         print(f'\nEvaluating for 5 episodes')
@@ -331,4 +376,5 @@ class DDQNAgent(nn.Module):
             rewards.append(total_reward)
 
         print('Mean Reward:', np.mean(rewards))
+        print()
 

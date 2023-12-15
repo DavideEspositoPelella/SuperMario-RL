@@ -7,7 +7,7 @@ from torch.utils.tensorboard import SummaryWriter
 import gym
 
 from agents.ddqn_agent import DDQNAgent
-from utils.utils import create_dir, init_tensorboard, close_tb
+from util.util import create_dir, init_tensorboard, close_tb
 from config import Config
 import make_env
 
@@ -57,8 +57,8 @@ def train(env:gym.Env,
     else:
         raise ValueError("Invalid algorithm selected")
     
-    # if args.model != 'False':
-        # agent.load(args.model)
+    if args.model != 'False':
+        agent.load(args.model)
     agent.train()
     agent.save()
 
@@ -101,8 +101,9 @@ def evaluate(env: gym.Env,
                               save_dir=save_dir)
         else:
             raise ValueError("Invalid algorithm selected")
-        agent.load(args.model)
-        agent.evaluate(config.episodes)
+        if args.model != 'False':
+            agent.load(args.model)
+            agent.evaluate(env)
     
 
 def main():
