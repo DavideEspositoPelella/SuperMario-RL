@@ -315,43 +315,52 @@ class DDQNAgent(nn.Module):
         
         if not load_path.exists():
                 raise ValueError(f"{load_path} does not exist")
-        state = torch.load(load_path, map_location=self.device)
         
-        self.net.load_state_dict(state['model_state_dict'])
-        if self.icm and 'icm_model_state_dict' in state:
-            self.icm_model.load_state_dict(state['icm_model_state_dict'])
-        self.optimizer.load_state_dict(state['optimizer_state_dict'])
-        self.ep = state['episode']
-        self.config.batch_size = state['batch_size']
-        self.config.update_freq = state['update_freq']
-        self.config.sync_freq = state['sync_freq']
-        self.config.exploration_rate = state['exploration_rate']
-        self.config.exploration_rate_decay = state['exploration_decay']
-        self.config.memory_size = state['memory_size']
-        self.config.burn_in = state['burn_in']
-        if self.prioritized:
-            self.config.alpha = state['alpha']
-            self.config.beta = state['beta']
-        self.config.gamma = state['gamma']
-        self.curr_step_global = state.get('curr_step_global', 0)
-        self.curr_step_local = state.get('curr_step_local', 0)
-        self.log_dir = state['log_dir']
+        if model_path == 'mario_net_20000_1000update.chkpt':
+            ckp = torch.load(load_path, map_location=self.device)
+            exploration_rate = ckp.get('exploration_rate')
+            state_dict = ckp.get('model')
+            self.net.load_state_dict(state_dict)
+            self.exploration_rate = exploration_rate
+        
+        else:
+            state = torch.load(load_path, map_location=self.device)
+            
+            self.net.load_state_dict(state['model_state_dict'])
+            if self.icm and 'icm_model_state_dict' in state:
+                self.icm_model.load_state_dict(state['icm_model_state_dict'])
+            self.optimizer.load_state_dict(state['optimizer_state_dict'])
+            self.ep = state['episode']
+            self.config.batch_size = state['batch_size']
+            self.config.update_freq = state['update_freq']
+            self.config.sync_freq = state['sync_freq']
+            self.config.exploration_rate = state['exploration_rate']
+            self.config.exploration_rate_decay = state['exploration_decay']
+            self.config.memory_size = state['memory_size']
+            self.config.burn_in = state['burn_in']
+            if self.prioritized:
+                self.config.alpha = state['alpha']
+                self.config.beta = state['beta']
+            self.config.gamma = state['gamma']
+            self.curr_step_global = state.get('curr_step_global', 0)
+            self.curr_step_local = state.get('curr_step_local', 0)
+            self.log_dir = state['log_dir']
 
-        # Print loaded hyperparameters
-        print("Loaded Hyperparameters:")
-        hyperparameters = [
-            'batch_size', 'update_freq', 'sync_freq', 'exploration_rate', 
-            'exploration_rate_decay', 'memory_size', 'burn_in', 'gamma', 
-            'curr_step_global', 'curr_step_local', 'log_dir'
-        ]
-        if self.prioritized:
-            hyperparameters.extend(['alpha', 'beta'])
+            # Print loaded hyperparameters
+            print("Loaded Hyperparameters:")
+            hyperparameters = [
+                'batch_size', 'update_freq', 'sync_freq', 'exploration_rate', 
+                'exploration_rate_decay', 'memory_size', 'burn_in', 'gamma', 
+                'curr_step_global', 'curr_step_local', 'log_dir'
+            ]
+            if self.prioritized:
+                hyperparameters.extend(['alpha', 'beta'])
 
-        for key in hyperparameters:
-            if key in state:
-                print(f"{key}: {state[key]}")
-            else:
-                print(f"{key}: Not found in saved state")
+            for key in hyperparameters:
+                if key in state:
+                    print(f"{key}: {state[key]}")
+                else:
+                    print(f"{key}: Not found in saved state")
 
     def to(self, device):
         ret = super().to(device)

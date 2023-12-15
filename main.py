@@ -12,6 +12,7 @@ from util.util import create_dir, init_tensorboard, close_tb
 from config import Config
 import make_env
 
+
 warnings.filterwarnings("ignore", category=UserWarning, module='gym.envs.registration')
 
 
@@ -56,12 +57,16 @@ def train(env:gym.Env,
                           log_dir=log_dir,
                           save_dir=save_dir)
     elif algorithm == 'a3c':
+        '''
         agent = A3CAgent(env=env,
                          config=config,
                          icm=icm,
                          tb_writer=tb_writer,
                          log_dir=log_dir,
                          save_dir=save_dir)
+        '''
+        raise NotImplementedError("A3C not implemented yet")
+
     else:
         raise ValueError("Invalid algorithm selected")
     
@@ -108,13 +113,15 @@ def evaluate(env: gym.Env,
                               log_dir=log_dir,
                               save_dir=save_dir)
         elif algorithm == 'a3c':
-            
+            '''
             agent = A3CAgent(env=env,
                              config=config,
                              icm=icm,
                              tb_writer=tb_writer,
                              log_dir=log_dir,
                              save_dir=save_dir)
+                             '''
+            raise NotImplementedError("A3C not implemented yet")
         else:
             raise ValueError("Invalid algorithm selected")
         if args.model != 'False':
