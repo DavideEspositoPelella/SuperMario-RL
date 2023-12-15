@@ -63,7 +63,7 @@ class DDQNAgent(nn.Module):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.config = config
         self.env = env
-        self.state_dim = (4, 42, 42)
+        self.state_dim = (self.config.stack, self.config.resize_shape, self.config.resize_shape)
         self.num_actions=self.env.action_space.n
         self.prioritized = prioritized
         self.icm = icm
@@ -97,7 +97,7 @@ class DDQNAgent(nn.Module):
         else:
             self.buffer = TensorDictReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size))
             self.loss_fn = torch.nn.SmoothL1Loss()
-        self.optimizer = torch.optim.Adam(self.net.parameters(), lr=self.config.lr)        
+        self.optimizer = torch.optim.Adam(self.net.online_net.parameters(), lr=self.config.lr)        
 
         if self.icm:
             self.icm_model = ICMModel(input_dim=self.state_dim, 
@@ -105,12 +105,12 @@ class DDQNAgent(nn.Module):
                                       feature_size=self.config.feature_size, 
                                       device=self.device).float().to(self.device)
             
-            self.optimizer = torch.optim.Adam(list(self.net.parameters()) + list(self.icm_model.parameters()),lr=self.config.lr)
+            self.optimizer = torch.optim.Adam(list(self.net.online_net.parameters()) + list(self.icm_model.parameters()),lr=self.config.lr)
             self.emb_loss_fn = torch.nn.MSELoss()
             self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
             self.forward_loss_fn = torch.nn.MSELoss()
 
-    def act(self, state):
+    def act(self, state, burn_in=False):
         """
         Given a state, choose an epsilon-greedy action and update value of step.
 
@@ -126,10 +126,9 @@ class DDQNAgent(nn.Module):
             state = torch.tensor(state, device=self.device).unsqueeze(0)
             action_values = self.net(state, model="online")
             action_idx = torch.argmax(action_values, axis=1).item()
-
-        self.config.exploration_rate *= self.config.exploration_rate_decay
-        self.config.exploration_rate = max(self.config.exploration_rate_min, self.config.exploration_rate)
-
+        if not burn_in and self.curr_step_global % self.config.update_freq == 0:
+            self.config.exploration_rate *= self.config.exploration_rate_decay
+            self.config.exploration_rate = max(self.config.exploration_rate_min, self.config.exploration_rate)
         self.curr_step_global += 1
         self.curr_step_local += 1
         return action_idx
@@ -181,7 +180,6 @@ class DDQNAgent(nn.Module):
         """
         
         state, next_state, action, reward, done, info = self.sample()
-        torch.clamp(reward, -1, 1)
         one_hot_action = F.one_hot(action, num_classes=self.num_actions).float()
         total_reward = reward
 
@@ -216,7 +214,7 @@ class DDQNAgent(nn.Module):
             
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.net.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(self.net.online_net.parameters(), 1.0)
         self.optimizer.step()
         
         if self.tb_writer and self.curr_step_global % self.loss_log_freq == 0:
@@ -239,7 +237,7 @@ class DDQNAgent(nn.Module):
         reset_output = self.env.reset()
         state, _ = reset_output
         while self.curr_step_global < self.config.burn_in:
-            action = self.act(state)
+            action = self.act(state, burn_in=True)
             next_state, reward, done, _, info = self.env.step(action) 
             self.store(state, next_state, action, reward, done)
             if done:
