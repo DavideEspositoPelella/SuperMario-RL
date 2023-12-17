@@ -8,6 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 import gym
 
 from agents.ddqn_agent import DDQNAgent
+from agents.a2c_agent import A2CAgent
 from agents.a3c_agent import A3CAgent
 from util.util import create_dir, init_tensorboard, close_tb
 from config import Config
@@ -60,14 +61,24 @@ def train(env:gym.Env,
     elif algorithm == 'a3c':
         '''
         agent = A3CAgent(env=env,
-                         config=config,
-                         icm=icm,
-                         tb_writer=tb_writer,
-                         log_dir=log_dir,
-                         save_dir=save_dir)
+                          config=config,
+                          prioritized=False, 
+                          icm=icm, 
+                          tb_writer=tb_writer,
+                          log_dir=log_dir, 
+                          save_dir=save_dir)
         '''
         raise NotImplementedError("A3C not implemented yet")
-
+    
+    elif algorithm == 'a2c':
+        agent = A2CAgent(env=env, 
+                          config=config, 
+                          prioritized=True,
+                          icm=icm,
+                          tb_writer=tb_writer,
+                          log_dir=log_dir,
+                          save_dir=save_dir)
+        
     else:
         raise ValueError("Invalid algorithm selected")
     
@@ -143,10 +154,10 @@ def main():
         tb_writer, log_dir = None, None
     # initialize configuration
     config = Config(skip_frame = 2, stack = 4, resize_shape = 42,
-                    exploration_rate=1.0, exploration_rate_decay=0.999, exploration_rate_min=0.1,
-                    memory_size=2000, burn_in=200, alpha=0.7, beta=0.5, epsilon_buffer=0.01,
-                    gamma=0.99, batch_size=32, lr=0.0001,
-                    update_freq=1, sync_freq=1000, episodes=args.episodes,
+                    exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.1,
+                    memory_size=50000, burn_in=10000, alpha=0.7, beta=0.5, epsilon_buffer=0.01,
+                    gamma=0.99, batch_size=64, lr=0.0001,
+                    update_freq=10, sync_freq=100, episodes=args.episodes,
                     feature_size=288, eta=1.0, beta_icm=0.2, lambda_icm=0.1,
                     log_freq=args.log_freq, save_freq=args.save_freq)
     

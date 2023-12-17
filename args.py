@@ -14,7 +14,7 @@ def get_args():
     parser.add_argument('--algorithm', 
                         type=str, 
                         default='ddqn', 
-                        choices=['ddqn', 'ddqn_per', 'a3c', 'sarsa'], 
+                        choices=['ddqn', 'ddqn_per', 'a3c', 'a2c', 'sarsa'], 
                         help='The algorithm to use')
     parser.add_argument('--episodes', 
                         type=int, 
