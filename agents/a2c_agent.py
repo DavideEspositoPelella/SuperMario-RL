@@ -20,78 +20,7 @@ import os
 os.environ["OMP_NUM_THREADS"] = "1"
 
 
-class A2CNet(nn.Module):
-    def __init__(self, 
-                 num_channels: int=4,
-                 output_dim: int=5) -> None:
-        """         
-        Initializes the network for the agent.
 
-        Args:
-            - num_channels (int): Number of channels in input. Default to 4.
-            - output_dim (int): Output dimension. Default to 5. 
-        """
-        super(A2CNet, self).__init__()
-        # convolutional layers
-        self.actor_lr = 0.0001
-        self.critic_lr = 0.0005
-        actor_layers = [
-         nn.Conv2d(in_channels=num_channels,
-                   out_channels=32,
-                   kernel_size=8, 
-                   stride=4),
-        nn.Conv2d(in_channels=32,
-                  out_channels=64,
-                  kernel_size=4,
-                  stride=2),
-        nn.Conv2d(in_channels=64,
-                  out_channels=64,
-                  kernel_size=3,
-                  stride=1),
-        nn.Flatten(),
-        nn.Linear(64, 256),
-        nn.Linear(256, output_dim)
-        ]
-        critic_layers = [
-        nn.Conv2d(in_channels=num_channels,
-                  out_channels=32,
-                  kernel_size=8, 
-                  stride=4),
-        nn.Conv2d(in_channels=32,
-                    out_channels=64,
-                    kernel_size=4,
-                    stride=2),
-        nn.Conv2d(in_channels=64,
-                    out_channels=64,
-                    kernel_size=3,
-                    stride=1),
-        nn.Flatten(),
-        nn.Linear(64, 256),
-        nn.Linear(256,1)
-        ]
-
-        self.actor = nn.Sequential(*actor_layers)
-        self.critic = nn.Sequential(*critic_layers)
-
-        self.critic_optim = optim.RMSprop(self.critic.parameters(), lr=self.critic_lr)
-        self.actor_optim = optim.RMSprop(self.actor.parameters(), lr=self.actor_lr)
-
-
-    
-    def forward(self, 
-                x: torch.Tensor) -> torch.Tensor:
-        """ 
-        Implements the forward pass.
-        
-        Args:
-            - x (torch.Tensor): Input tensor.
-        """
-        # convolutional layers
-        x = torch.Tensor(x).to(self.device)
-        values = self.critic(x)
-        logits = self.actor(x)
-        return logits, values
-    
 
 class A2CAgent(nn.Module):
     def __init__(self, 
@@ -219,7 +148,7 @@ class A2CAgent(nn.Module):
 
     def define_network_components(self):
         """#TODO: add docstring"""
-        #self.net = A3CNet(num_channels=4, 
+        #self.net = A2CNet(num_channels=4, 
         #                  output_dim=self.num_actions).float().to(self.device)    
 
         if self.icm:
@@ -278,12 +207,7 @@ class A2CAgent(nn.Module):
     
 
     def act(self, state, exploration=True):
-        #print(state.shape)
-        #state = state[0].__array__() if isinstance(state, tuple) else state.__array__()
-        #print(state.shape)
-        #state = torch.tensor(state, device=self.device).unsqueeze(0)
-        #print(state.shape)
-    
+
         value, actor_features = self.forward(state)
 
         dist = Categorical(logits=actor_features)
@@ -298,11 +222,6 @@ class A2CAgent(nn.Module):
         return state
     
     def train(self):
-        critic_losses = []
-        actor_losses = []
-        entropies = []
-        n_updates = 100
-        n_steps_per_update = 128
         self.episode = 0
 
         print("Start training.")
@@ -320,7 +239,6 @@ class A2CAgent(nn.Module):
         all_rewards = []
         entropy_term = 0
         D = torch.zeros(1000, 6)
-
         
         for i_episode in tqdm(range(1, n_training_episodes + 1)):
             saved_log_probs = []  # stores log probs during episode
@@ -368,21 +286,8 @@ class A2CAgent(nn.Module):
                                             0.9,
                                             0.95)
 
-                    #R = A + saved_values.detach().numpy()
                     R = A + torch.vstack(saved_values)
 
-                    # Convert lists to PyTorch tensors
-                    #states_batch = torch.vstack(saved_states)
-                    #actions_batch = torch.tensor(saved_actions, dtype=torch.long)
-                    #rewards_batch = torch.tensor(saved_rewards, dtype=torch.float32)
-                    #done_batch = torch.tensor(saved_done, dtype=torch.float32)
-
-                   # advantages_batch = torch.tensor(A, dtype=torch.float32)
-
-                    #returns_batch = torch.tensor(R, dtype=torch.float32)
-
-                    # Flatten the batch
-                    #M = (states_batch, actions_batch, rewards_batch, done_batch, advantages_batch, returns_batch)
                     self.optimize_model(self.preprocess(states), saved_actions, saved_rewards, saved_done, A, R)
 
                     scores_deque.append(sum(saved_rewards))
@@ -433,7 +338,8 @@ class A2CAgent(nn.Module):
             advantages[t] = advantage
 
         return advantages.to(self.device)
-    
+  
+
     def optimize_model(self, states, actions, rewards, dones, advantages, returns):
         observations = states
         
@@ -471,77 +377,7 @@ class A2CAgent(nn.Module):
         self.actor_optim.step()
         self.critic_optim.step()
 
-        
-    def get_losses(
-        self,
-        rewards: torch.Tensor,
-        action_log_probs: torch.Tensor,
-        value_preds: torch.Tensor,
-        entropy: torch.Tensor,
-        masks: torch.Tensor,
-        gamma: float,
-        lam: float,
-        ent_coef: float,
-        device: torch.device,
-    ):
-        """
-        Computes the loss of a minibatch (transitions collected in one sampling phase) for actor and critic
-        using Generalized Advantage Estimation (GAE) to compute the advantages 
-        Args:
-            rewards: A tensor with the rewards for each time step in the episode, with shape [n_steps_per_update, n_envs].
-            action_log_probs: A tensor with the log-probs of the actions taken at each time step in the episode, with shape [n_steps_per_update, n_envs].
-            value_preds: A tensor with the state value predictions for each time step in the episode, with shape [n_steps_per_update, n_envs].
-            masks: A tensor with the masks for each time step in the episode, with shape [n_steps_per_update, n_envs].
-            gamma: The discount factor.
-            lam: The GAE hyperparameter. (lam=1 corresponds to Monte-Carlo sampling with high variance and no bias,
-                                          and lam=0 corresponds to normal TD-Learning that has a low variance but is biased
-                                          because the estimates are generated by a Neural Net).
-            device: The device to run the computations on (e.g. CPU or GPU).
 
-        Returns:
-            critic_loss: The critic loss for the minibatch.
-            actor_loss: The actor loss for the minibatch.
-        """
-        T = len(rewards)
-        advantages = torch.zeros(T, device=device)
-
-        # compute the advantages using GAE
-        gae = 0.0
-        for t in reversed(range(T - 1)):
-            td_error = (
-                rewards[t] + gamma * masks[t] * value_preds[t + 1] - value_preds[t]
-            )
-            gae = td_error + gamma * lam * masks[t] * gae
-            advantages[t] = gae
-
-        # calculate the loss of the minibatch for actor and critic
-        critic_loss = advantages.pow(2).mean()
-
-        # give a bonus for higher entropy to encourage exploration
-        actor_loss = (-(advantages.detach() * action_log_probs).mean() - ent_coef * entropy.mean())
-        return (critic_loss, actor_loss)
-
-
-
-
-    def update_parameters(
-        self, critic_loss: torch.Tensor, actor_loss: torch.Tensor
-    ) -> None:
-        """
-        Updates the parameters of the actor and critic networks.
-
-        Args:
-            critic_loss: The critic loss.
-            actor_loss: The actor loss.
-        """
-        self.critic_optim.zero_grad()
-        critic_loss.backward()
-        self.critic_optim.step()
-
-        self.actor_optim.zero_grad()
-        actor_loss.backward()
-        self.actor_optim.step()
-    
     def save(self, episode):
         episode=episode
         actor_filename = f"model_actor_ep{episode}.pt"
@@ -552,6 +388,7 @@ class A2CAgent(nn.Module):
     def load(self):
         self.actor.load_state_dict(torch.load("model_actor.pt"), map_location=self.device)
         self.critic.load_state_dict(torch.load("model_critic.pt"), map_location=self.device)
+
 
     def evaluate(self, env: gym.Env) -> None:
         rewards = []
