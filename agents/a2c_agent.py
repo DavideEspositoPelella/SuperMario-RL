@@ -21,7 +21,6 @@ os.environ["OMP_NUM_THREADS"] = "1"
 
 
 
-
 class A2CAgent(nn.Module):
     def __init__(self, 
                  env: gym.Env,
@@ -207,7 +206,7 @@ class A2CAgent(nn.Module):
     
 
     def act(self, state, exploration=True):
-
+    
         value, actor_features = self.forward(state)
 
         dist = Categorical(logits=actor_features)
@@ -231,7 +230,6 @@ class A2CAgent(nn.Module):
         gamma = 0.99
         print_every = 10
 
-        frequency_update = 20
         frequency_save = 300
 
         all_lengths = []
@@ -239,6 +237,7 @@ class A2CAgent(nn.Module):
         all_rewards = []
         entropy_term = 0
         D = torch.zeros(1000, 6)
+
         
         for i_episode in tqdm(range(1, n_training_episodes + 1)):
             saved_log_probs = []  # stores log probs during episode
@@ -263,6 +262,20 @@ class A2CAgent(nn.Module):
 
                 #STEP Simulator
                 states, rewards, terminated, truncated, info  = self.env.step(action)
+                improve_reward = False
+                if improve_reward:
+                    if info['flag_get']:
+                        rewards += 50
+                    if info['life'] < 2:
+                        rewards -= 10
+                    if info['time'] < 100: 
+                        rewards -= 10
+                    if info['status'] == 'tall':
+                        rewards += 5
+                    if info['status'] == 'fireball':
+                        rewards += 10
+                    rewards += 0.001*info['x_pos'] + 0.001*info['score'] + 0.1*info['coins']
+
                 done = terminated or truncated
 
                 saved_done.append(done)
@@ -275,20 +288,34 @@ class A2CAgent(nn.Module):
                 if done:
                     break
 
-                if i_episode % frequency_update:
+                if i_episode % 2 == 0:
                     # Learning Phase:
                     v_next = self.critic(self.preprocess(states))
 
-                    A = self.GAE_advantage(saved_rewards,
+                    advantages = self.GAE_advantage(saved_rewards,
                                             saved_log_probs,
                                             saved_done,
-                                            v_next,
+                                            #v_next,
+                                            saved_values,
                                             0.9,
                                             0.95)
 
-                    R = A + torch.vstack(saved_values)
+                    #R = A + saved_values.detach().numpy()
+                    returns = advantages + torch.vstack(saved_values)
 
-                    self.optimize_model(self.preprocess(states), saved_actions, saved_rewards, saved_done, A, R)
+                    # Convert lists to PyTorch tensors
+                    #states_batch = torch.vstack(saved_states)
+                    #actions_batch = torch.tensor(saved_actions, dtype=torch.long)
+                    #rewards_batch = torch.tensor(saved_rewards, dtype=torch.float32)
+                    #done_batch = torch.tensor(saved_done, dtype=torch.float32)
+
+                   # advantages_batch = torch.tensor(A, dtype=torch.float32)
+
+                    #returns_batch = torch.tensor(R, dtype=torch.float32)
+
+                    # Flatten the batch
+                    #M = (states_batch, actions_batch, rewards_batch, done_batch, advantages_batch, returns_batch)
+                    self.optimize_model(self.preprocess(states), saved_actions, saved_rewards, saved_done, advantages, returns)
 
                     scores_deque.append(sum(saved_rewards))
                     #reinitialize
@@ -298,6 +325,7 @@ class A2CAgent(nn.Module):
                     saved_states = []   
                     saved_done = []    
                     saved_values = []     
+                    break
 
             scores_deque.append(sum(saved_rewards))
 
@@ -329,6 +357,11 @@ class A2CAgent(nn.Module):
         values = torch.tensor(values, dtype=torch.float32, device=self.device)
 
         # Compute temporal differences
+        #print("Rewards",len(rewards))
+        #print("ones:",len(ones))
+        #print("dones", len(dones))
+        #print("next_value",len(next_value))
+        #print("values",len(values))
         deltas = rewards + (ones - dones) * discount_factor * next_value - values
 
         # Calculate GAE advantage
@@ -338,8 +371,7 @@ class A2CAgent(nn.Module):
             advantages[t] = advantage
 
         return advantages.to(self.device)
-  
-
+    
     def optimize_model(self, states, actions, rewards, dones, advantages, returns):
         observations = states
         
@@ -371,13 +403,13 @@ class A2CAgent(nn.Module):
         total_loss.backward()
 
         # Clip gradients to prevent excessively large updates
-        torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-        torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
+        #torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
+        #torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
 
         self.actor_optim.step()
         self.critic_optim.step()
 
-
+    
     def save(self, episode):
         episode=episode
         actor_filename = f"model_actor_ep{episode}.pt"
@@ -388,7 +420,6 @@ class A2CAgent(nn.Module):
     def load(self):
         self.actor.load_state_dict(torch.load("model_actor.pt"), map_location=self.device)
         self.critic.load_state_dict(torch.load("model_critic.pt"), map_location=self.device)
-
 
     def evaluate(self, env: gym.Env) -> None:
         rewards = []

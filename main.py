@@ -8,8 +8,7 @@ from torch.utils.tensorboard import SummaryWriter
 import gym
 
 from agents.ddqn_agent import DDQNAgent
-from agents.a2c_agent import A2CAgent
-from agents.a3c_agent import A3CAgent
+from agents.a2c_backup import A2CAgent
 from util.util import create_dir, init_tensorboard, close_tb, set_seed
 from config import Config
 import make_env
@@ -155,7 +154,7 @@ def main():
     else:
         tb_writer, log_dir = None, None
     # initialize configuration
-    config = Config(skip_frame = 2, stack = 4, resize_shape = 42,
+    config = Config(skip_frame = 4, stack = 4, resize_shape = 42,
                     exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.2,
                     memory_size=10000, burn_in=1000, alpha=0.6, beta=0.4, epsilon_buffer=0.01,
                     gamma=0.99, batch_size=64, lr=0.000001,
