@@ -3,7 +3,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-
 class ICMModel(nn.Module):
     def __init__(self, input_dim, num_actions, feature_size, device):
         super(ICMModel, self).__init__()
@@ -45,11 +44,19 @@ class ICMModel(nn.Module):
         self.inverse_net = nn.Sequential(nn.Linear(feature_size * 2, 512),
                                          nn.ReLU(),
                                          nn.Linear(512, num_actions))
+        
+        self.residual = [nn.Sequential(
+            nn.Linear(num_actions + feature_size, 512),
+            nn.LeakyReLU(),
+            nn.Linear(512, feature_size),
+        ).to(self.device)] * 8
 
-        self.forward_net = nn.Sequential(
+        self.forward_1 = nn.Sequential(
             nn.Linear(num_actions + feature_size, feature_size),
-            nn.ReLU(),
-            nn.Linear(feature_size, feature_size))
+            nn.LeakyReLU()
+        )
+        self.forward_net_2 = nn.Sequential(
+            nn.Linear(feature_size + num_actions, feature_size))
 
     def forward(self, state, next_state, action):    
         encoded_state = self.feature(state)
@@ -59,6 +66,12 @@ class ICMModel(nn.Module):
         pred_action = self.inverse_net(concat_states)
 
         concat_state_action = torch.cat((encoded_state, action), 1)
-        pred_next_state_feat = self.forward_net(concat_state_action)
+        pred_next_state_feat_1 = self.forward_1(concat_state_action)
+
+        # residual
+        for i in range(4):
+            pred_next_state_feat = self.residual[i * 2](torch.cat((pred_next_state_feat_1, action), 1))
+            pred_next_state_feat_1 = self.residual[i * 2 + 1](
+                torch.cat((pred_next_state_feat, action), 1)) + pred_next_state_feat_1
         
         return pred_next_state_feat, encoded_next_state, pred_action

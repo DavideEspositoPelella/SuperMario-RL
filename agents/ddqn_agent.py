@@ -198,7 +198,7 @@ class DDQNAgent(nn.Module):
             best_action = torch.argmax(next_state_Q, axis=1)
             next_Q = self.net(next_state, model="target")[np.arange(0, self.config.batch_size), best_action]    
             q_tgt = (reward + (1 - done.float()) * self.config.gamma * next_Q).float()
-        td_error = q_tgt - q_est 
+        td_error = q_est - q_tgt 
 
         if self.prioritized:
             priority = td_error.abs() + self.config.epsilon_buffer
@@ -207,14 +207,13 @@ class DDQNAgent(nn.Module):
             self.buffer.update_priority(info["index"], priority)
         else:
             loss = self.loss_fn(q_est, q_tgt)
-        loss = torch.clamp(loss, -1, 1)
             
         if self.icm:
-            loss = -self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
+            loss = self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
             
         self.optimizer.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(self.net.online_net.parameters(), 1.0)
+        # torch.nn.utils.clip_grad_norm_(self.net.online_net.parameters(), 1.0)
         self.optimizer.step()
         
         if self.tb_writer and self.curr_step_global % self.loss_log_freq == 0:

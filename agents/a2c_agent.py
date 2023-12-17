@@ -483,7 +483,7 @@ class A2CAgent(nn.Module):
         lam: float,
         ent_coef: float,
         device: torch.device,
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ):
         """
         Computes the loss of a minibatch (transitions collected in one sampling phase) for actor and critic
         using Generalized Advantage Estimation (GAE) to compute the advantages 
