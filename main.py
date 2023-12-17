@@ -10,7 +10,7 @@ import gym
 from agents.ddqn_agent import DDQNAgent
 from agents.a2c_agent import A2CAgent
 from agents.a3c_agent import A3CAgent
-from util.util import create_dir, init_tensorboard, close_tb
+from util.util import create_dir, init_tensorboard, close_tb, set_seed
 from config import Config
 import make_env
 
@@ -144,6 +144,8 @@ def evaluate(env: gym.Env,
     
 
 def main():
+    seed = 2023
+    set_seed(seed)
     # create save directory
     save_dir = create_dir(args.save_dir, args.algorithm, args.icm)
     log_dir = create_dir(args.log_dir, args.algorithm, args.icm)
@@ -154,10 +156,10 @@ def main():
         tb_writer, log_dir = None, None
     # initialize configuration
     config = Config(skip_frame = 2, stack = 4, resize_shape = 42,
-                    exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.1,
-                    memory_size=10000, burn_in=1000, alpha=0.7, beta=0.5, epsilon_buffer=0.01,
-                    gamma=0.99, batch_size=64, lr=0.00001,
-                    update_freq=3, sync_freq=5000, episodes=args.episodes,
+                    exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.2,
+                    memory_size=10000, burn_in=1000, alpha=0.6, beta=0.4, epsilon_buffer=0.01,
+                    gamma=0.99, batch_size=64, lr=0.000001,
+                    update_freq=2, sync_freq=10000, episodes=args.episodes,
                     feature_size=288, eta=1.0, beta_icm=0.2, lambda_icm=0.1,
                     log_freq=args.log_freq, save_freq=args.save_freq)
     
