@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 import warnings
 from args import get_args
@@ -7,8 +8,8 @@ from torch.utils.tensorboard import SummaryWriter
 import gym
 
 from agents.ddqn_agent import DDQNAgent
-from agents.a3c_agent import A3CAgent
-from util.util import create_dir, init_tensorboard, close_tb
+from agents.a2c_backup import A2CAgent
+from util.util import create_dir, init_tensorboard, close_tb, set_seed
 from config import Config
 import make_env
 
@@ -59,14 +60,24 @@ def train(env:gym.Env,
     elif algorithm == 'a3c':
         '''
         agent = A3CAgent(env=env,
-                         config=config,
-                         icm=icm,
-                         tb_writer=tb_writer,
-                         log_dir=log_dir,
-                         save_dir=save_dir)
+                          config=config,
+                          prioritized=False, 
+                          icm=icm, 
+                          tb_writer=tb_writer,
+                          log_dir=log_dir, 
+                          save_dir=save_dir)
         '''
         raise NotImplementedError("A3C not implemented yet")
-
+    
+    elif algorithm == 'a2c':
+        agent = A2CAgent(env=env, 
+                          config=config, 
+                          prioritized=True,
+                          icm=icm,
+                          tb_writer=tb_writer,
+                          log_dir=log_dir,
+                          save_dir=save_dir)
+        
     else:
         raise ValueError("Invalid algorithm selected")
     
@@ -132,6 +143,8 @@ def evaluate(env: gym.Env,
     
 
 def main():
+    seed = 2023
+    set_seed(seed)
     # create save directory
     save_dir = create_dir(args.save_dir, args.algorithm, args.icm)
     log_dir = create_dir(args.log_dir, args.algorithm, args.icm)
@@ -149,7 +162,14 @@ def main():
                     feature_size=288, eta=10.0, beta_icm=0.2, lambda_icm=0.1,
                     log_freq=args.log_freq, save_freq=args.save_freq)
     
+    # create environment     
     env = make_env.make_env(skip_frame=config.skip_frame, stack=config.stack, resize_shape=config.resize_shape)
+    
+    # add config to tensorboard
+    if args.tb:
+        config_json = json.dumps(vars(config), indent=4)
+        tb_writer.add_text('config', config_json)
+
     # train/evaluate
     if args.train:
         train(env, config, args.algorithm, args.icm, tb_writer, log_dir, save_dir)

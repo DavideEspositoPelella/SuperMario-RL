@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 import torch.nn.functional as F
+import torch.nn.init as init
 
 class Net(nn.Module):
     def __init__(self, 
@@ -32,6 +33,17 @@ class Net(nn.Module):
         self.fc1 = nn.Linear(64, 256)
         self.fc2 = nn.Linear(256, output_dim)
     
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                init.constant_(m.bias, 0)
+
+    
     def forward(self, 
                 x: torch.Tensor) -> torch.Tensor:
         """ 
@@ -44,7 +56,6 @@ class Net(nn.Module):
         x = F.relu(self.conv1(x)) 
         x = F.relu(self.conv2(x)) 
         x = F.relu(self.conv3(x))
-        # global max pooling 
         x = self.flatten(x)
         # linear layers
         x = F.relu(self.fc1(x)) 
@@ -66,6 +77,7 @@ class DDQNetwork(nn.Module):
         super(DDQNetwork, self).__init__()
         # initialize the online and the target networks
         self.online_net = Net(c, output_dim) 
+        self.online_net.init_weights() 
         self.target_net = Net(c, output_dim)
         self.target_net.load_state_dict(self.online_net.state_dict())
         for p in self.target_net.parameters():
