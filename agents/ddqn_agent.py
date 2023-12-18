@@ -94,9 +94,9 @@ class DDQNAgent(nn.Module):
         # curiosity module
         if self.icm:
             self.icm_model = ICMModel(input_dim=self.state_dim, 
-                                    num_actions=self.num_actions, 
-                                    feature_size=self.config.feature_size, 
-                                    device=self.device).float().to(self.device)
+                                      num_actions=self.num_actions, 
+                                      feature_size=self.config.feature_size, 
+                                      device=self.device).float().to(self.device)
             # the optimizer for ddqn with curiosity
             self.optimizer = torch.optim.Adam(list(self.net.online_net.parameters()) + list(self.icm_model.parameters()),lr=self.config.lr)
             # losses to integrate curiosity

@@ -10,16 +10,11 @@ from torch.utils.tensorboard import SummaryWriter
 import gym
 
 from models.icm import ICMModel
+from models.a2c import A2C
 from config import Config
 
 import torch.optim as optim
 from torch.distributions import Categorical
-from collections import namedtuple, deque
-
-import os
-os.environ["OMP_NUM_THREADS"] = "1"
-
-
 
 class A2CAgent(nn.Module):
     def __init__(self, 
@@ -44,74 +39,14 @@ class A2CAgent(nn.Module):
         """
 
         super(A2CAgent, self).__init__()
-        # initialize the configuration settings
-        self.episode = 0
-        self.gamma = 0.999
-        self.lam = 0.95  # hyperparameter for GAE
-        self.ent_coef = 0.01  # coefficient for the entropy bonus (to encourage exploration)
-        self.actor_lr = 0.001
-        self.critic_lr = 0.005
-        self.n_updates = 1000
-
-        self.configure_agent(env=env, config=config, prioritized=prioritized, icm=icm)
+        # configure the agent with the given parameters
+        self.configure_agent(env=env, config=config, icm=icm)
+        # define tensorboard logging and checkpoint saving
         self.define_logs_metric(tb_writer=tb_writer, log_dir=log_dir, save_dir=save_dir)
-
-        self.actor_lr = 0.001
-        self.critic_lr = 0.005
-        actor_layers = [
-        nn.Conv2d(in_channels=self.state_dim[0],
-                  out_channels=32,
-                  kernel_size=8, 
-                  stride=4),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=32,
-                  out_channels=64,
-                  kernel_size=4,
-                  stride=2),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=64,
-                  out_channels=64,
-                  kernel_size=3,
-                  stride=1),
-        nn.ReLU(),
-        nn.Flatten(),
-        nn.Linear(64, 256),
-        nn.ReLU(),
-        nn.Linear(256, self.num_actions)
-        ]
-        critic_layers = [
-        nn.Conv2d(in_channels=self.state_dim[0],
-                  out_channels=32,
-                  kernel_size=8, 
-                  stride=4),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=32,
-                    out_channels=64,
-                    kernel_size=4,
-                    stride=2),
-        nn.ReLU(),
-        nn.Conv2d(in_channels=64,
-                    out_channels=64,
-                    kernel_size=3,
-                    stride=1),
-        nn.Flatten(),
-        nn.Linear(64, 256),
-        nn.ReLU(),
-        nn.Linear(256,1)
-        ]
-
-        self.actor = nn.Sequential(*actor_layers)
-        self.critic = nn.Sequential(*critic_layers)
-
-        self.critic_optim = optim.RMSprop(self.critic.parameters(), lr=self.critic_lr)
-        self.actor_optim = optim.RMSprop(self.actor.parameters(), lr=self.actor_lr)
-
-
 
     def configure_agent(self,
                         env: gym.Env,
                         config: Config,
-                        prioritized: bool=False,
                         icm: bool=False) -> None:
         """
         Initializes the configuration settings.
@@ -119,303 +54,176 @@ class A2CAgent(nn.Module):
         Args:
             - env (gym.Env): The environment.
             - config (Config): The configuration object.
-            - prioritized (bool): Whether to use prioritized replay buffer. Default to False.
             - icm (bool): Whether to use ICM. Default to False.
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.device = "cpu"
         self.config = config
         self.env = env
         self.state_dim = (4, 42, 42)
         self.num_actions=self.env.action_space.n
-        self.prioritized = prioritized
         self.icm = icm
         self.define_network_components()
 
     def define_logs_metric(self, 
                            tb_writer: SummaryWriter=None, 
                            log_dir: Path=None,
-                           save_dir: Path=None):
-            """#TODO: add docstring"""
-            self.tb_writer = tb_writer
-            self.log_dir = log_dir
-            self.save_dir = save_dir
-            self.loss_log_freq = self.config.log_freq
-            self.save_freq = self.config.save_freq
-            self.curr_step_global = 0
-            self.curr_step_local = 0
-
-    def define_network_components(self):
-        """#TODO: add docstring"""
-        #self.net = A2CNet(num_channels=4, 
-        #                  output_dim=self.num_actions).float().to(self.device)    
-
+                           save_dir: Path=None) -> None:
+        """ 
+        Initializes the tensorboard logging and checkpoint saving.
+        
+        Args:
+            - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object.
+            - log_dir (Path): The directory for TensorBoard logs. 
+            - save_dir (Path): The directory for model checkpoints.
+        """
+        self.tb_writer = tb_writer
+        self.log_dir = log_dir
+        self.save_dir = save_dir
+        self.loss_log_freq = self.config.log_freq
+        self.save_freq = self.config.save_freq
+        self.episodes = 0
+        
+    def define_network_components(self) -> None:
+        """Initialize the networks, the loss and the optimizer according to the configuration settings."""
+        self.a2c = A2C(input_dim=self.state_dim, 
+                       num_actions=self.num_actions).float().to(self.device)
+            
+        self.actor_optim = optim.RMSprop(self.a2c.actor_net.parameters(), lr=self.config.actor_lr)
+        self.critic_optim = optim.RMSprop(self.a2c.critic_net.parameters(), lr=self.config.critic_lr)
+    
         if self.icm:
             self.icm_model = ICMModel(input_dim=self.state_dim, 
                                       num_actions=self.num_actions, 
                                       feature_size=self.config.feature_size, 
                                       device=self.device).float().to(self.device)
             
-            self.optimizer = torch.optim.Adam(list(self.net.parameters()) + list(self.icm_model.parameters()),lr=self.config.lr)
+            self.optimizer = torch.optim.Adam(self.icm_model.parameters(), lr=self.config.lr)
             self.emb_loss_fn = torch.nn.MSELoss()
             self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
             self.forward_loss_fn = torch.nn.MSELoss()
-
-
-    def select_action(self, x):
-        """
-        Returns a tuple of the chosen actions and the log-probs of those actions.
-
-        Args:
-            x: A batched vector of states.
-
-        Returns:
-            actions: A tensor with the actions, with shape [n_steps_per_update, n_envs].
-            action_log_probs: A tensor with the log-probs of the actions, with shape [n_steps_per_update, n_envs].
-            state_values: A tensor with the state values, with shape [n_steps_per_update, n_envs].
-        """
-        state_values, action_logits = self.forward(x)
-        action_pd = torch.distributions.Categorical(logits=action_logits)  # implicitly uses softmax
-        actions = action_pd.sample()
-        action_log_probs = action_pd.log_prob(actions)
-        entropy = action_pd.entropy()
-        return (actions, action_log_probs, state_values, entropy)
-    
-
-    def forward(self, x):
-            """
-            Forward pass of the networks.
-
-            Args:
-                x: A batched vector of states.
-
-            Returns:
-                state_values: A tensor with the state values, with shape [n_envs,].
-                action_logits_vec: A tensor with the action logits, with shape [n_envs, n_actions].
-            """
-            #x = torch.Tensor(x).to(self.device)
-            if isinstance(x, np.ndarray) or hasattr(x, '__array__'):
-                x = np.array(x)  # This works for numpy arrays and objects with a __array__ method
-            if not isinstance(x, torch.Tensor):
-                x = torch.tensor(x, device=self.device, dtype=torch.float32)
-
-
-            state_values = self.critic(x)  
-            action_logits_vec = self.actor(x)  
-            return (state_values, action_logits_vec)
-    
-
-    def act(self, state, exploration=True):
-    
-        value, actor_features = self.forward(state)
-
-        dist = Categorical(logits=actor_features)
-        chosen_action = dist.sample().item()  # Convert to Python scalar
-        log_prob = dist.log_prob(torch.tensor(chosen_action, device=self.device))
         
-        return chosen_action, log_prob, value
+    def act(self, state):
+        action_probs = self.a2c.actor_net(state)
+        dist = Categorical(logits=action_probs)
+        action = dist.sample().item()
+        return action
     
-    def preprocess(self, state):
+    def lazy_to_tensor(self, state):
         state = state[0].__array__() if isinstance(state, tuple) else state.__array__()
         state = torch.tensor(state, device=self.device).unsqueeze(0)
         return state
     
     def train(self):
-        self.episode = 0
 
         print("Start training.")
-        scores_deque = deque(maxlen=100)
-
-        n_training_episodes = 35000
-        gamma = 0.99
-        print_every = 10
-
-        frequency_save = 300
-
-        all_lengths = []
-        average_lengths = []
-        all_rewards = []
-        entropy_term = 0
-        D = torch.zeros(1000, 6)
-
         
-        for i_episode in tqdm(range(1, n_training_episodes + 1)):
-            saved_log_probs = []  # stores log probs during episode
-            saved_rewards = []    # stores rewards during episode
-            saved_actions = []    # stores actions
-            saved_done = []       # stores done flag
-            saved_values = []     # stores the values
-            saved_states = []     # stores states
-
-            states, _ = self.env.reset()
-            done = False
-            #Rollout phase
-            while not done:
-
-                # store the state
-                saved_states.append(states)
-
-                action, log_prob, value = self.act(self.preprocess(states))
-
-                # store log_prob
-                saved_log_probs.append(log_prob)
-
-                #STEP Simulator
-                states, rewards, terminated, truncated, info  = self.env.step(action)
-                improve_reward = False
-                if improve_reward:
-                    if info['flag_get']:
-                        rewards += 50
-                    if info['life'] < 2:
-                        rewards -= 10
-                    if info['time'] < 100: 
-                        rewards -= 10
-                    if info['status'] == 'tall':
-                        rewards += 5
-                    if info['status'] == 'fireball':
-                        rewards += 10
-                    rewards += 0.001*info['x_pos'] + 0.001*info['score'] + 0.1*info['coins']
-
-                done = terminated or truncated
-
-                saved_done.append(done)
-
-                # STORE all
-                saved_rewards.append(rewards)
-                saved_actions.append(action)
-                saved_values.append(value)
-
-                if done:
-                    break
-
-                if i_episode % 2 == 0:
-                    # Learning Phase:
-                    v_next = self.critic(self.preprocess(states))
-
-                    advantages = self.GAE_advantage(saved_rewards,
-                                            saved_log_probs,
-                                            saved_done,
-                                            #v_next,
-                                            saved_values,
-                                            0.9,
-                                            0.95)
-
-                    #R = A + saved_values.detach().numpy()
-                    returns = advantages + torch.vstack(saved_values)
-
-                    # Convert lists to PyTorch tensors
-                    #states_batch = torch.vstack(saved_states)
-                    #actions_batch = torch.tensor(saved_actions, dtype=torch.long)
-                    #rewards_batch = torch.tensor(saved_rewards, dtype=torch.float32)
-                    #done_batch = torch.tensor(saved_done, dtype=torch.float32)
-
-                   # advantages_batch = torch.tensor(A, dtype=torch.float32)
-
-                    #returns_batch = torch.tensor(R, dtype=torch.float32)
-
-                    # Flatten the batch
-                    #M = (states_batch, actions_batch, rewards_batch, done_batch, advantages_batch, returns_batch)
-                    self.optimize_model(self.preprocess(states), saved_actions, saved_rewards, saved_done, advantages, returns)
-
-                    scores_deque.append(sum(saved_rewards))
-                    #reinitialize
-                    saved_log_probs = []  
-                    saved_rewards = []    
-                    saved_actions = []    
-                    saved_states = []   
-                    saved_done = []    
-                    saved_values = []     
-                    break
-
-            scores_deque.append(sum(saved_rewards))
-
-            # Print training statistics
-            if i_episode % print_every == 0:
-                average_length = np.mean(scores_deque)
-                all_lengths.append(len(saved_rewards))
-                average_lengths.append(average_length)
-                all_rewards.append(np.sum(saved_rewards))
-                print(f"Episode {i_episode}\tAverage Score: {average_length:.2f}")
-
-            # Save model weights
-            if i_episode % frequency_save == 0:
-                self.save(i_episode)
-
-        print("Training Finished.")
-        return 
+        for e in tqdm(range(self.config.episodes)):
+            self.ep = e
+            actions = np.empty((self.config.n_steps,), dtype=np.int)
+            dones = np.empty((self.config.n_steps,), dtype=np.bool)
+            rewards, values = np.empty((2, self.config.n_steps), dtype=np.float)
+            states = np.empty((self.config.n_steps, 4, 42, 42), dtype=np.float)
+            state, _ = self.env.reset()
+            
+            # Rollout phase
+            for i in range(self.config.n_steps):
+                states[i] = state
+                state_tensor = self.lazy_to_tensor(state)
+                values[i] = self.a2c.critic_net(state_tensor).cpu().detach().numpy()
+                actions[i] = self.act(state_tensor)
+                state, reward, terminated, truncated, _  = self.env.step(actions[i])
+                rewards[i] = reward
+                dones[i] = terminated or truncated
+                if dones[i]:
+                    state, _ = self.env.reset()
+            
+            if dones[-1]:
+                next_value = 0
+            else:
+                state_tensor = self.lazy_to_tensor(state)
+                next_value = self.a2c.critic_net(state_tensor).cpu().detach().numpy()[0]
+            
+            returns, advantages = self.returns_advantages(rewards, dones, values, next_value)
+            self.optimize_model(states, actions, returns, advantages)
+        return
     
-    def GAE_advantage(self, rewards, values, dones, next_value, discount_factor, gae_parameter):
-        T = len(rewards)
-        advantages = torch.zeros(T, dtype=torch.float32, device=self.device)
-
-        # Convert rewards, dones, and next_value to PyTorch tensors
-        rewards = torch.tensor(rewards, dtype=torch.float32, device=self.device)
-        dones = torch.tensor(dones, dtype=torch.float32, device=self.device)
-        next_value = torch.tensor(next_value, dtype=torch.float32, device=self.device)
-
-        ones = torch.ones((T,)).to(self.device)
-        values = torch.tensor(values, dtype=torch.float32, device=self.device)
-
-        # Compute temporal differences
-        #print("Rewards",len(rewards))
-        #print("ones:",len(ones))
-        #print("dones", len(dones))
-        #print("next_value",len(next_value))
-        #print("values",len(values))
-        deltas = rewards + (ones - dones) * discount_factor * next_value - values
-
-        # Calculate GAE advantage
-        advantage = 0
-        for t in reversed(range(T)):
-            advantage = deltas[t] + (discount_factor * gae_parameter) * (1 - dones[t]) * advantage
-            advantages[t] = advantage
-
-        return advantages.to(self.device)
+    def returns_advantages(self, rewards, dones, values, next_value):        
+        returns = np.append(np.zeros_like(rewards), next_value, axis=0)
+        
+        for t in reversed(range(rewards.shape[0])):
+            returns[t] = rewards[t] + self.config.gamma * returns[t + 1] * (1 - dones[t])
+            
+        returns = returns[:-1]
+        advantages = returns - values
+        return returns, advantages
     
-    def optimize_model(self, states, actions, rewards, dones, advantages, returns):
-        observations = states
-        
-        actions = torch.tensor(actions, dtype=torch.long, device=self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float, device=self.device)
-        dones = torch.tensor(dones, dtype=torch.float, device=self.device)
-        advantages = torch.tensor(advantages, dtype=torch.float, device=self.device)
-        returns = torch.tensor(returns, dtype=torch.float, device=self.device)
+    def optimize_model(self, 
+                       states, 
+                       actions,
+                       returns,
+                       advantages):
+        actions_tensor = torch.tensor(actions, dtype=torch.long).to(self.device)
+        returns = torch.tensor(returns[:, None], dtype=torch.float).to(self.device)
+        advantages = torch.tensor(advantages, dtype=torch.float).to(self.device)
+        states = torch.tensor(states, dtype=torch.float).to(self.device)
 
-        # Forward pass
-        values, actor_features = self.forward(observations)
-        dist = Categorical(logits=actor_features)
-        action_log_probs = dist.log_prob(actions)
+        action_probs, state_values = self.a2c(states)
+        dist = Categorical(logits=action_probs)
+        log_probs = dist.log_prob(actions_tensor)
 
-        # Compute actor and critic loss
-        actor_loss = -(action_log_probs * advantages).mean()
-        
-        critic_loss = F.mse_loss(values, returns)
-
-        # Entropy loss for regularization
+        # actor loss
+        actor_loss = -(log_probs * advantages).mean()
+        # critic loss
+        critic_loss = F.mse_loss(state_values, returns)
+        # entropy loss
         entropy_loss = dist.entropy().mean()
-
-        # Total loss with a coefficient for entropy regularization (encourage exploration)
-        total_loss = -actor_loss + 0.5 * critic_loss - 0.01 * entropy_loss
-
-        # Backward pass and optimization for both actor and critic
+        # a2c loss
+        loss = actor_loss + 0.5 * critic_loss - self.config.ent_coef * entropy_loss
+        
+        if self.icm:
+            init_states = states[:-1]
+            next_states = states[1:]
+            one_hot_action = F.one_hot(actions_tensor[:-1], num_classes=self.num_actions).float()
+            # get the next state feature representation, the predicted one and the predicted action
+            next_state_feat, pred_next_state_feat, pred_action = self.icm_model(init_states, next_states, one_hot_action)
+            # compute the losses for the forward and inverse models
+            inverse_loss = self.inverse_loss_fn(pred_action, actions_tensor[:-1])
+            forward_loss = self.forward_loss_fn(pred_next_state_feat, next_state_feat)
+            # compute the intrinsic reward, logged in tensorboard
+            intrinsic_reward = self.config.eta * F.mse_loss(next_state_feat, pred_next_state_feat, reduction='none').mean(-1)
+            # total loss for curiosity is a combination of ddqn loss and inverse/forward losses, weighted by beta and lambda
+            loss = self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
+            self.optimizer.zero_grad()
         self.actor_optim.zero_grad()
         self.critic_optim.zero_grad()
-        total_loss.backward()
+        loss.backward()
 
-        # Clip gradients to prevent excessively large updates
-        #torch.nn.utils.clip_grad_norm_(self.actor.parameters(), 0.5)
-        #torch.nn.utils.clip_grad_norm_(self.critic.parameters(), 0.5)
-
+        torch.nn.utils.clip_grad_norm_(self.a2c.actor_net.parameters(), 1.0)
+        torch.nn.utils.clip_grad_norm_(self.a2c.critic_net.parameters(), 1.0)
+        
         self.actor_optim.step()
         self.critic_optim.step()
-
+        if self.icm:
+            self.optimizer.step()
     
+        if self.tb_writer:
+            self.tb_writer.add_scalar("Actor_loss/train", actor_loss.item(), self.ep)
+            self.tb_writer.add_scalar("Critic_loss/train", critic_loss.item(), self.ep)
+            self.tb_writer.add_scalar("Entropy_loss/train", entropy_loss.item(), self.ep)
+            self.tb_writer.add_scalar("Total_loss/train", loss.item(), self.ep)
+            self.tb_writer.add_scalar("Advantage/train", advantages.mean().item(), self.ep)
+            if self.icm:
+                self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.ep)
+                self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.ep)
+                self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.ep)
+        
+        
     def save(self, episode):
         episode=episode
         actor_filename = f"model_actor_ep{episode}.pt"
         critic_filename = f"model_critic_ep{episode}.pt"
-        torch.save(self.actor.state_dict(), actor_filename)
-        torch.save(self.critic.state_dict(), critic_filename)
+        torch.save(self.a2c.actor_net.state_dict(), actor_filename)
+        torch.save(self.a2c.critic_net.state_dict(), critic_filename)
 
     def load(self):
         self.actor.load_state_dict(torch.load("model_actor.pt"), map_location=self.device)
@@ -425,8 +233,8 @@ class A2CAgent(nn.Module):
         rewards = []
 
         print(f'\nEvaluating for 5 episodes')
-        print('Algorithm: {}'.format('DDQN_PER' if self.prioritized else 'DDQN'))
-        for _ in tqdm(range(5)):
+        print('Algorithm: A2C')
+        for _ in tqdm(range(10)):
             total_reward = 0
             done = False
             state, _ = env.reset()

@@ -70,14 +70,14 @@ class Net(nn.Module):
     
 class DDQNetwork(nn.Module):
     def __init__(self, 
-                 input_dim: int,
-                 output_dim: int) -> None:
+                 input_dim: tuple=(4, 42, 42),
+                 output_dim: int=5) -> None:
         """
         Initializes the Deep Q-Network.
 
         Args:
-            - input_dim (int): Input dimension.
-            - output_dim (int): Output dimension.
+            - input_dim (int): Input shape. Default to (4, 42, 42)
+            - output_dim (int): Output dimension. Default to 5.
         """
         super(DDQNetwork, self).__init__()
         c = input_dim[0]
