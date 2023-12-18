@@ -143,10 +143,10 @@ def main():
     
     config = Config(skip_frame = 2, stack = 4, resize_shape = 42,
                     exploration_rate=1.0, exploration_rate_decay=0.9999, exploration_rate_min=0.1,
-                    memory_size=10000, burn_in=100, alpha=0.7, beta=0.5, epsilon_buffer=0.01,
-                    gamma=0.99, batch_size=64, lr=0.001,
-                    update_freq=10, sync_freq=100, episodes=args.episodes,
-                    feature_size=288, eta=1.0, beta_icm=0.2, lambda_icm=0.1,
+                    memory_size=20000, burn_in=2000, alpha=0.7, beta=0.5, epsilon_buffer=0.01,
+                    gamma=0.99, batch_size=64, lr=0.00001,
+                    update_freq=5, sync_freq=500, episodes=args.episodes,
+                    feature_size=288, eta=10.0, beta_icm=0.2, lambda_icm=0.1,
                     log_freq=args.log_freq, save_freq=args.save_freq)
     
     env = make_env.make_env(skip_frame=config.skip_frame, stack=config.stack, resize_shape=config.resize_shape)
