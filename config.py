@@ -26,7 +26,6 @@ class Config:
                  n_steps: int=2000,
                  actor_lr: float=0.0001,
                  critic_lr: float=0.0001,
-                 lambda_gae: float=0.95,
                  ent_coef: float=0.01) -> None:
         """
         Initializes the configuration settings.
@@ -58,7 +57,6 @@ class Config:
             - n_steps (int): Number of steps for rollouts (A2C). Default to 2000.
             - actor_lr (float): Learning rate for the actor (A2C). Default to 0.0001.
             - critic_lr (float): Learning rate for the critic (A2C). Default to 0.0001.
-            - lambda_gae (float): Discount factor for the generalized advantage estimation (A2C). Default to 0.95.
             - ent_coef (float): Entropy coefficient for A2C. Default to 0.01.
 
         """
@@ -94,5 +92,4 @@ class Config:
         self.n_steps = n_steps
         self.actor_lr = actor_lr
         self.critic_lr = critic_lr
-        self.lambda_gae = lambda_gae
         self.ent_coef = ent_coef

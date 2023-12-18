@@ -1,8 +1,5 @@
 import argparse
 
-import torch
-
-
 def get_args():
     parser = argparse.ArgumentParser(description='RL')
     parser.add_argument('-t', 
@@ -13,7 +10,7 @@ def get_args():
                         action='store_true')
     parser.add_argument('--algorithm', 
                         type=str, 
-                        default='ddqn', 
+                        default='a2c', 
                         choices=['ddqn', 'ddqn_per', 'a2c'], 
                         help='The algorithm to use.')
     parser.add_argument('--episodes', 

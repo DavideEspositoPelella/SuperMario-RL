@@ -55,8 +55,7 @@ def train(env:gym.Env,
                           save_dir=save_dir)
     elif algorithm == 'a2c':
         agent = A2CAgent(env=env, 
-                         config=config, 
-                         prioritized=True,
+                         config=config,
                          icm=icm,
                          tb_writer=tb_writer,
                          log_dir=log_dir,
@@ -110,7 +109,6 @@ def evaluate(env: gym.Env,
         elif algorithm == 'a2c':
             agent = A2CAgent(env=env, 
                              config=config, 
-                             prioritized=True,
                              icm=icm,
                              tb_writer=tb_writer,
                              log_dir=log_dir,
@@ -148,7 +146,7 @@ def main():
                         log_freq=args.log_freq, save_freq=args.save_freq)
     elif args.algorithm == 'a2c':
         config = Config(skip_frame = 2, stack = 4, resize_shape = 42,
-                        gamma=0.99, actor_lr=0.01, critic_lr=0.001, lambda_gae=0.95, ent_coef=0.01, 
+                        gamma=0.99, actor_lr=0.01, critic_lr=0.001, ent_coef=0.01, 
                         episodes=args.episodes, eta=1.0, beta_icm=0.2, lambda_icm=0.1,
                         log_freq=args.log_freq, save_freq=args.save_freq)
 

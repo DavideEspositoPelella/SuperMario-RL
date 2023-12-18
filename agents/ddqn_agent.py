@@ -316,8 +316,8 @@ class DDQNAgent(nn.Module):
         return 
     
 
-    def save(self):
-        """Save the model to a checkpoint."""
+    def save(self) -> None:
+        """Save the model and the configuration settings."""
         save_path = self.save_dir / f"mario_net_{self.ep}.chkpt"
 
         state = {
@@ -342,7 +342,7 @@ class DDQNAgent(nn.Module):
         torch.save(state, save_path)
 
 
-    def load(self, model_path: str=None):
+    def load(self, model_path: str=None) -> None:
         """Load the agent's state from a checkpoint."""
         if model_path == 'False':
             print("No model specified")

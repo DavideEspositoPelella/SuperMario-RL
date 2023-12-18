@@ -5,7 +5,7 @@ import torch.nn.init as init
 
 class A2C(nn.Module):
     def __init__(self, 
-                 input_dim: tuple=(4, 84, 84),
+                 input_dim: tuple=(4, 42, 42),
                  num_actions: int=5) -> None:
         """
         Initialize the A2C module.

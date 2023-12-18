@@ -60,17 +60,16 @@ python3 main.py [OPTIONS]
 **Command-Line Arguments**:
 - '-t', '--train': Enable training mode.
 - '-e', '--evaluate': Enable evaluation mode.
-- 'algorithm <algorithm>': Specify the algorithm to use. Options are ddqn, ddqn_per, a3c, sarsa. Default is ddqn.
+- 'algorithm <algorithm>': Specify the algorithm to use. Options are ddqn, ddqn_per, a2c. Default is a2c.
 - '--episodes' <num_episodes>': Set the number of episodes:
     - Default for training is 20000;
-    - Default for evaluate is 5.
-- '--icm': Specify if the algorithm will use the ICM module. Default is False
-- ' --log-interval <interval>': Interval for logging information. Default is 10.
-- '--save-interval <interval>': Interval for saving the model. Default is 100.
+- '--icm': Specify to use the ICM module. Default is False.
+- ' --log-freq <interval>': Logging frequency (for A2C it is relative to the number of episodes, for DDQN is relative to the global step count). Default is 10.
+- '--save-freq <interval>': Saving frequency (for A2C it is relative to the number of episodes, for DDQN is relative to the global step count). Default is 100.
 - '--log-dir <path>': Directory to save logs. Default is ./logs/.
 - '--save-dir <path>': Directory to save trained models. Default is ./trained_models/.
-- '--model <model>': Specify if want to load a specific model to continue the training or evaluate.
-- '--tb': Enable the tensorboard.
+- '--model <model>': Specify if you want to load a specific model to continue the training or to evaluate.
+- '--tb': Enable tensorboard.
 
 ### Examples
 
@@ -79,14 +78,15 @@ python3 main.py [OPTIONS]
 python3 main.py -t
 ```
 
-2. Run training with a specific algorithm and number of episodes
+2. Run training with a specific algorithm and number of episodes (and TensorBoard logging)
 ```bash
-python3 main.py -t --episodes 5000 --algorithm ddqn_per --icm --model mario_net_10.chkpt --tb
+python3 main.py -t --episodes 5000 --algorithm a2c --icm --tb
 ```
+
 3. Run evaluation
 
 ```bash
-python3 main.py -e --algorithm ddqn_per --icm --model mario_net_10.chkpt
+python3 main.py -e --algorithm a2c --icm --model mario_net.chkpt
 ```
 
 ## Contacts
