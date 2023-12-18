@@ -144,7 +144,7 @@ def main():
                     gamma=0.99, batch_size=64, lr=0.0001,
                     update_freq=3, sync_freq=1000, episodes=args.episodes,
                     feature_size=288, eta=1.0, beta_icm=0.2, lambda_icm=0.1,
-                    log_freq=args.log_freq, save_freq=args.save_freq)
+                    log_freq=args.log_freq, save_freq=args.save_freq) #TODO put good parameters that you use in training 
     
     # create the environment     
     env = make_env.make_env(skip_frame=config.skip_frame, 

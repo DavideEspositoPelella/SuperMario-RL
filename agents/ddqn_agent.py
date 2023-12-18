@@ -220,7 +220,7 @@ class DDQNAgent(nn.Module):
             next_state_feat, pred_next_state_feat, pred_action = self.icm_model(state, next_state, one_hot_action)
             # compute the losses for the forward and inverse models
             inverse_loss = self.inverse_loss_fn(pred_action, action)
-            forward_loss = self.forward_loss_fn(pred_next_state_feat, next_state_feat)  
+            forward_loss = self.forward_loss_fn(pred_next_state_feat, next_state_feat)
             # compute the intrinsic reward, logged in tensorboard
             intrinsic_reward = self.config.eta * F.mse_loss(next_state_feat, pred_next_state_feat, reduction='none').mean(-1)
             total_reward = reward + intrinsic_reward
@@ -287,8 +287,8 @@ class DDQNAgent(nn.Module):
         print("Starting...")
         print(f"Training for: {episodes} episodes\n")
         self.curr_step_global = 0
-        self.curr_step_local = 0
         for e in tqdm(range(episodes)):
+            self.curr_step_local = 0
             state, _ = self.env.reset()
             self.ep = e
             while True:
@@ -380,8 +380,7 @@ class DDQNAgent(nn.Module):
             print("Loaded Hyperparameters:")
             hyperparameters = [
                 'batch_size', 'update_freq', 'sync_freq', 'exploration_rate', 
-                'exploration_rate_decay', 'memory_size', 'burn_in', 'gamma', 
-                'curr_step_global', 'curr_step_local', 'log_dir'
+                'exploration_rate_decay', 'memory_size', 'burn_in', 'gamma', 'log_dir'
             ]
             if self.prioritized:
                 hyperparameters.extend(['alpha', 'beta'])

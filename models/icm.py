@@ -117,8 +117,7 @@ class ICMModel(nn.Module):
         # residual blocks
         for i in range(4):
             pred_next_state_feat = self.residual[i * 2](torch.cat((pred_next_state_feat_1, action), 1))
-            pred_next_state_feat_1 = self.residual[i * 2 + 1](
-                torch.cat((pred_next_state_feat, action), 1)) + pred_next_state_feat_1
+            pred_next_state_feat_1 = self.residual[i * 2 + 1](torch.cat((pred_next_state_feat, action), 1)) + pred_next_state_feat_1
         # final layer of the forward model
         pred_next_state_feat = self.forward_net_2(torch.cat((pred_next_state_feat_1, action), 1))
         return  encoded_next_state, pred_next_state_feat, pred_action
