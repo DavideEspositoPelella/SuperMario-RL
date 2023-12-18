@@ -33,7 +33,10 @@ class Net(nn.Module):
         self.fc1 = nn.Linear(64, 256)
         self.fc2 = nn.Linear(256, output_dim)
     
-    def init_weights(self):
+    def init_weights(self) -> None:
+        """
+        Initializes the weights of the network with Kaiming normal initialization.
+        """
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
                 init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
@@ -51,6 +54,9 @@ class Net(nn.Module):
         
         Args:
             - x (torch.Tensor): Input tensor.
+        
+        Returns:
+            - x (torch.Tensor): Output tensor.
         """
         # convolutional layers
         x = F.relu(self.conv1(x)) 
@@ -73,13 +79,15 @@ class DDQNetwork(nn.Module):
             - input_dim (int): Input dimension.
             - output_dim (int): Output dimension.
         """
-        c = input_dim[0]
         super(DDQNetwork, self).__init__()
-        # initialize the online and the target networks
+        c = input_dim[0]
+        # initialize the online network with kaiming normal initialization
         self.online_net = Net(c, output_dim) 
         self.online_net.init_weights() 
+        # initialize the target network with the same weights as the online network
         self.target_net = Net(c, output_dim)
         self.target_net.load_state_dict(self.online_net.state_dict())
+        # the target network parameters does not require gradients
         for p in self.target_net.parameters():
             p.requires_grad = False
 
@@ -92,6 +100,9 @@ class DDQNetwork(nn.Module):
         Args:
             - input (torch.Tensor): Input tensor.
             - model (str): Model to use. Can be 'online' or 'target'. Default to 'online'.
+
+        Returns:
+            - torch.Tensor: Output tensor.            
         """
         if model == 'online':
             return self.online_net(input)

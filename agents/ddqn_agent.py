@@ -1,6 +1,7 @@
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
+from typing import Tuple 
 
 import torch
 import torch.nn as nn
@@ -11,6 +12,7 @@ from tensordict import TensorDict
 from torchrl.data import TensorDictPrioritizedReplayBuffer, LazyTensorStorage, TensorDictReplayBuffer
 
 import gym
+from gym.wrappers import LazyFrames
 
 from models.icm import ICMModel
 from models.ddqn import DDQNetwork
@@ -19,7 +21,6 @@ from config import Config
 
 
 class DDQNAgent(nn.Module):
-
     def __init__(self, 
                  env: gym.Env,
                  config: Config,
@@ -42,8 +43,9 @@ class DDQNAgent(nn.Module):
         """
 
         super(DDQNAgent, self).__init__()
-        # initialize the configuration settings
+        # configure the agent with the given parameters
         self.configure_agent(env=env, config=config, prioritized=prioritized, icm=icm)
+        # define tensorboard logging and checkpoint saving
         self.define_logs_metric(tb_writer=tb_writer, log_dir=log_dir, save_dir=save_dir)
         
     def configure_agent(self,
@@ -64,29 +66,17 @@ class DDQNAgent(nn.Module):
         self.config = config
         self.env = env
         self.state_dim = (self.config.stack, self.config.resize_shape, self.config.resize_shape)
-        self.num_actions=self.env.action_space.n
+        self.num_actions = self.env.action_space.n
         self.prioritized = prioritized
         self.icm = icm
         self.define_network_components()
-
-
-    def define_logs_metric(self, 
-                           tb_writer: SummaryWriter=None, 
-                           log_dir: Path=None,
-                           save_dir: Path=None):
-        """#TODO: add docstring"""
-        self.tb_writer = tb_writer
-        self.log_dir = log_dir
-        self.save_dir = save_dir
-        self.loss_log_freq = self.config.log_freq
-        self.save_freq = self.config.save_freq
-        self.curr_step_global = 0
-        self.curr_step_local = 0
-
-    def define_network_components(self):
-        """#TODO: add docstring"""
+    
+    def define_network_components(self) -> None:
+        """Initialize the networks, the replay buffer, the loss and the optimizer according to the configuration settings."""
+        # ddqn network
         self.net = DDQNetwork(input_dim=self.state_dim, 
                               output_dim=self.num_actions).float().to(self.device)
+        # replay buffer
         if self.prioritized:
             self.buffer = TensorDictPrioritizedReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size),
                                                             alpha=self.config.alpha, 
@@ -94,69 +84,101 @@ class DDQNAgent(nn.Module):
                                                             priority_key='td_error',
                                                             eps=self.config.epsilon_buffer,
                                                             batch_size=self.config.batch_size)
+            # a customized loss function is computed directly in training for ddqn_per
         else:
             self.buffer = TensorDictReplayBuffer(storage=LazyTensorStorage(max_size = self.config.memory_size))
+            # loss function for ddqn
             self.loss_fn = torch.nn.SmoothL1Loss()
+        # the optimizer for ddqn and ddqn_per
         self.optimizer = torch.optim.Adam(self.net.online_net.parameters(), lr=self.config.lr)        
-
+        # curiosity module
         if self.icm:
             self.icm_model = ICMModel(input_dim=self.state_dim, 
-                                      num_actions=self.num_actions, 
-                                      feature_size=self.config.feature_size, 
-                                      device=self.device).float().to(self.device)
-            
+                                    num_actions=self.num_actions, 
+                                    feature_size=self.config.feature_size, 
+                                    device=self.device).float().to(self.device)
+            # the optimizer for ddqn with curiosity
             self.optimizer = torch.optim.Adam(list(self.net.online_net.parameters()) + list(self.icm_model.parameters()),lr=self.config.lr)
+            # losses to integrate curiosity
             self.emb_loss_fn = torch.nn.MSELoss()
             self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
             self.forward_loss_fn = torch.nn.MSELoss()
 
-    def act(self, state, burn_in=False):
+    def define_logs_metric(self, 
+                           tb_writer: SummaryWriter=None, 
+                           log_dir: Path=None,
+                           save_dir: Path=None) -> None:
+        """ 
+        Initializes the tensorboard logging, checkpoint saving and the current step.
+        
+        Args:
+            - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object.
+            - log_dir (Path): The directory for TensorBoard logs. 
+            - save_dir (Path): The directory for model checkpoints.
         """
-        Given a state, choose an epsilon-greedy action and update value of step.
+        self.tb_writer = tb_writer
+        self.log_dir = log_dir
+        self.save_dir = save_dir
+        self.loss_log_freq = self.config.log_freq
+        self.save_freq = self.config.save_freq
+        self.curr_step_global = 0
+        # defined just in case is needed for logs but not actually used
+        self.curr_step_local = 0
 
-        Inputs:
-        state (LazyFrame): A single observation of the current state of dimension (state_dim)
-        Outputs:
-        action_idx (int): An integer representing which action the Agent will perform
+
+    def act(self, 
+            state: LazyFrames) -> int:
+        """
+        Choose an action from the state with an epsilon-greedy policy.
+
+        Args:
+            - state (LazyFrames): The current state of the environment.
+
+        Returns:
+            - action_idx (int): The index of the selected action.
         """
         if np.random.rand() < self.config.exploration_rate:
             action_idx = np.random.randint(self.num_actions)
         else:
             state = state[0].__array__() if isinstance(state, tuple) else state.__array__()
+            # transform the state to a tensor and add a batch dimension 
             state = torch.tensor(state, device=self.device).unsqueeze(0)
+            # get the action values from the network and choose the best action
             action_values = self.net(state, model="online")
-            action_idx = torch.argmax(action_values, axis=1).item()
-        if not burn_in and self.curr_step_global % self.config.update_freq == 0:
-            self.config.exploration_rate *= self.config.exploration_rate_decay
-            self.config.exploration_rate = max(self.config.exploration_rate_min, self.config.exploration_rate)
+            action_idx = torch.argmax(action_values, axis=1).item()            
         self.curr_step_global += 1
         self.curr_step_local += 1
         return action_idx
     
         
-    def store(self, state, next_state, action, reward, done):
+    def store(self, 
+              state: LazyFrames, 
+              next_state: LazyFrames, 
+              action: int, 
+              reward: float, 
+              done: bool) -> None:
         """
-        Store the experience to self.memory (replay buffer)
+        Store the experience in the replay buffer.
 
-        Inputs:
-        state (LazyFrame),
-        next_state (LazyFrame),
-        action (int),
-        reward (float),
-        done(bool))
+        Args:
+            - state (LazyFrames): The current state of the environment.
+            - next_state (LazyFrames): The next state of the environment.
+            - action (int): The index of the selected action.
+            - reward (float): The reward received from the environment.
+            - done (bool): Whether the episode is finished.
         """
         def first_if_tuple(x):
             return x[0] if isinstance(x, tuple) else x
             
         state = first_if_tuple(state).__array__()
         next_state = first_if_tuple(next_state).__array__()
-
+        # convert the state and next_state to tensors
         state = torch.tensor(state)
         next_state = torch.tensor(next_state)
         action = torch.tensor([action])
         reward = torch.tensor([reward])
         done = torch.tensor([done])
-        
+        # use the TensorDict class to store the experience
         data = TensorDict({"state": state, 
                            "next_state": next_state, 
                            "action": action, 
@@ -164,58 +186,75 @@ class DDQNAgent(nn.Module):
                            "done": done}, batch_size=[])
         self.buffer.add(data)
 
-    def sample(self):
+    def sample(self) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict]:
         """
-        Retrieve a batch of experiences from memory
+        Retrieve a batch of experiences from replay buffer.
+
+        Returns:
+            - state (torch.Tensor): The current state of the environment.
+            - next_state (torch.Tensor): The next state of the environment.
+            - action (torch.Tensor): The index of the selected action.
+            - reward (torch.Tensor): The reward received from the environment.
+            - done (torch.Tensor): Whether the episode is finished.
+            - info (dict): The information about the batch.
         """
         batch, info = self.buffer.sample(self.config.batch_size, return_info=True)
         state, next_state, action, reward, done = (batch.get(key) for key in ("state", "next_state", "action", "reward", "done"))
         return state.to(self.device), next_state.to(self.device), action.to(self.device).squeeze(), reward.to(self.device).squeeze(), done.to(self.device).squeeze(), info
 
-
-
     def learn(self):
-        """#TODO: add docstring
-        #TODO simplify this function
         """
-        
+        Update the network parameters using experiences.
+
+        Returns: 
+            - td_error (torch.Tensor): The TD error.
+            - loss (float): The loss value.
+        """
+        # sample a batch of experiences from the replay buffer
         state, next_state, action, reward, done, info = self.sample()
         one_hot_action = F.one_hot(action, num_classes=self.num_actions).float()
         total_reward = reward
 
         if self.icm:
+            # get the next state feature representation, the predicted one and the predicted action
             next_state_feat, pred_next_state_feat, pred_action = self.icm_model(state, next_state, one_hot_action)
+            # compute the losses for the forward and inverse models
             inverse_loss = self.inverse_loss_fn(pred_action, action)
             forward_loss = self.forward_loss_fn(pred_next_state_feat, next_state_feat)  
-
+            # compute the intrinsic reward, logged in tensorboard
             intrinsic_reward = self.config.eta * F.mse_loss(next_state_feat, pred_next_state_feat, reduction='none').mean(-1)
             total_reward = reward + intrinsic_reward
-
-        q_est = self.net(state, model="online")[np.arange(0, self.config.batch_size), action]
-            
+        
+        # get the Q values estimates
+        q_est = self.net(state, model="online")[np.arange(0, self.config.batch_size), action]    
         with torch.no_grad():
+            # get the Q values for the next state and select the best action
             next_state_Q = self.net(next_state, model="online")
             best_action = torch.argmax(next_state_Q, axis=1)
+            # get the Q values from the target network and compute the target
             next_Q = self.net(next_state, model="target")[np.arange(0, self.config.batch_size), best_action]    
             q_tgt = (reward + (1 - done.float()) * self.config.gamma * next_Q).float()
+        # compute the td error
         td_error = q_est - q_tgt 
-
         if self.prioritized:
+            # compute the priority, the loss with importance sampling and update the priority in the buffer
             priority = td_error.abs() + self.config.epsilon_buffer
             importance_sampling_weights = torch.FloatTensor(info["_weight"]).reshape(-1, 1).to(self.device)
             loss = (importance_sampling_weights * td_error.pow(2)).mean()
             self.buffer.update_priority(info["index"], priority)
         else:
-            loss = self.loss_fn(q_est, q_tgt)
-            
+            # compute the loss
+            loss = self.loss_fn(q_est, q_tgt)          
         if self.icm:
+            # total loss for curiosity is a combination of ddqn loss and inverse/forward losses, weighted by beta and lambda
             loss = self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
-            
+        
+        # optimize the model
         self.optimizer.zero_grad()
         loss.backward()
-        # torch.nn.utils.clip_grad_norm_(self.net.online_net.parameters(), 1.0)
         self.optimizer.step()
-        
+
+        # log metrics in tensorboard
         if self.tb_writer and self.curr_step_global % self.loss_log_freq == 0:
             self.tb_writer.add_scalar("Loss/train", loss.item(), self.curr_step_global)
             self.tb_writer.add_scalar("Total_reward/train", total_reward.mean(), self.curr_step_global)
@@ -224,24 +263,26 @@ class DDQNAgent(nn.Module):
                 self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.curr_step_global)
                 self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.curr_step_global)
                 self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.curr_step_global)
-                
         return td_error, loss.item()
         
-    def train(self):
-        """#TODO: add docstring"""
+    def train(self) -> None:
+        """Train the agent for the given number of episodes."""
+        
         episodes = self.config.episodes
-
         # Burn-in
-        print("Populate replay buffer")
+        print("\nPopulating the replay buffer")
         reset_output = self.env.reset()
         state, _ = reset_output
         while self.curr_step_global < self.config.burn_in:
-            action = self.act(state, burn_in=True)
+            # get the action and execute it
+            action = self.act(state)
             next_state, reward, done, _, info = self.env.step(action) 
+            # store the transition
             self.store(state, next_state, action, reward, done)
+            # reset the environment
             if done:
                 state, _  = self.env.reset()
-        print("Burn in complete")
+        print("Burn in complete!\n")
 
         print("Starting...")
         print(f"Training for: {episodes} episodes\n")
@@ -250,29 +291,29 @@ class DDQNAgent(nn.Module):
         for e in tqdm(range(episodes)):
             state, _ = self.env.reset()
             self.ep = e
-
             while True:
+                # select and perform action
                 action = self.act(state)
-                
                 next_state, extrinsic_reward, done, _, info = self.env.step(action)
-
+                # store the transition
                 self.store(state, next_state, action, extrinsic_reward, done)
-
+                # learn every update_freq time steps
                 if self.curr_step_global % self.config.update_freq == 0:
-                    td_err, loss = self.learn()
-                
+                    self.learn()
+                # sync target model every sync_freq time steps
                 if self.curr_step_global % self.config.sync_freq == 0:
                     self.net.target_net.load_state_dict(self.net.online_net.state_dict())
-
                 state = next_state
-
+                # break if episode is finished
                 if done or info["flag_get"]:
                     break
-
+            self.config.exploration_rate *= self.config.exploration_rate_decay
+            self.config.exploration_rate = max(self.config.exploration_rate_min, self.config.exploration_rate)
+            # save model every save_freq episodes
             if self.ep % self.save_freq == 0:
                 self.save()
         print("Training complete.\n")
-        return
+        return 
     
 
     def save(self):
@@ -311,13 +352,6 @@ class DDQNAgent(nn.Module):
         
         if not load_path.exists():
                 raise ValueError(f"{load_path} does not exist")
-        
-        if model_path == 'mario_net_20000_1000update.chkpt':
-            ckp = torch.load(load_path, map_location=self.device)
-            exploration_rate = ckp.get('exploration_rate')
-            state_dict = ckp.get('model')
-            self.net.load_state_dict(state_dict)
-            self.exploration_rate = exploration_rate
         
         else:
             state = torch.load(load_path, map_location=self.device)
@@ -363,25 +397,26 @@ class DDQNAgent(nn.Module):
         ret.device = device
         return ret
 
-    # TODO is this compliant with the new ICM module?
-    def evaluate(self, env: gym.Env) -> None:
-        #env = self.make_env()
+    def evaluate(self, 
+                 env: gym.Env) -> None:
+        """
+        Evaluate the agent for 10 episodes.
+        """
         rewards = []
-
-        print(f'\nEvaluating for 5 episodes')
+        print(f'\nEvaluating for 10 episodes')
         print('Algorithm: {}'.format('DDQN_PER' if self.prioritized else 'DDQN'))
-        for _ in tqdm(range(5)):
+        for _ in tqdm(range(10)):
             total_reward = 0
             done = False
             state, _ = env.reset()
             while not done:
                 action = self.act(state)
-                state, reward, terminated, truncated, info = env.step(action)
+                state, reward, terminated, truncated, _ = env.step(action)
                 done = terminated or truncated
                 total_reward += reward
-
+                if terminated or truncated:
+                    break
             rewards.append(total_reward)
-
         print('Mean Reward:', np.mean(rewards))
         print()
 

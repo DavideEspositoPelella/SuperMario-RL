@@ -7,6 +7,20 @@ from pathlib import Path
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
+def set_seed(seed: int)-> None:
+    """
+    Set the seed for reproducibility.
+
+    Args:
+        - seed (int): The seed to use.
+    """
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def create_dir(base_dir: str,
                algorithm: str, 
@@ -27,6 +41,8 @@ def create_dir(base_dir: str,
         directory += "ddqn_per"
     elif algorithm == 'ddqn':
         directory += "ddqn"
+    elif algorithm == 'a2c':
+        directory += "a2c"
     if icm:
         directory += "_icm"
     directory = Path(directory)
@@ -34,12 +50,12 @@ def create_dir(base_dir: str,
     return directory
 
 
-def init_tensorboard(log_dir: str):
+def init_tensorboard(log_dir: Path):
     """
     Initialize TensorBoard.
 
     Args:
-        - log_dir (str): The directory where to save TensorBoard logs.
+        - log_dir (Path): The directory where to save TensorBoard logs.
 
     Returns:
         - tb_writer (SummaryWriter): The TensorBoard SummaryWriter object.
@@ -48,12 +64,11 @@ def init_tensorboard(log_dir: str):
     """
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     current_log_dir = log_dir / timestamp
-    print(f"\nTensorBoard log directory: {str(current_log_dir)}\n")
+    # define summary writer and tensorboard process
     tb_writer = SummaryWriter(log_dir=current_log_dir)
     tb_command = ['tensorboard', '--logdir', log_dir, '--bind_all', '--load_fast=false']
-    tb_process = subprocess.Popen(tb_command)
+    tb_process = subprocess.Popen(tb_command   )
     webbrowser.open("http://localhost:6006")
-    
     return tb_writer, tb_process, current_log_dir
 
 
@@ -70,18 +85,3 @@ def close_tb(tb_writer: SummaryWriter,
     tb_process.terminate()
     tb_process.wait()
 
-def set_seed(seed: int)-> None:
-    """
-    Set the seed for reproducibility.
-
-    Args:
-        - seed (int): The seed to use.
-    """
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
-    torch.backends.cudnn.deterministic = True
-    torch.backends.cudnn.benchmark = False

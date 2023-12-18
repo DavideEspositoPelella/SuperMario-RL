@@ -14,18 +14,18 @@ def get_args():
     parser.add_argument('--algorithm', 
                         type=str, 
                         default='ddqn', 
-                        choices=['ddqn', 'ddqn_per', 'a3c', 'a2c'], 
-                        help='The algorithm to use')
+                        choices=['ddqn', 'ddqn_per', 'a2c'], 
+                        help='The algorithm to use.')
     parser.add_argument('--episodes', 
                         type=int, 
                         default=20000, 
-                        help='Number of episodes to train')
+                        help='Number of episodes to train.')
     parser.add_argument('--icm', 
                         action='store_true',
-                        help='Include ICM (Intrinsic Curiosity Module) in training')
+                        help='Include ICM (Intrinsic Curiosity Module) in training/evaluation.')
     parser.add_argument('--tb', 
                         action='store_true', 
-                        help='Enable TensorBoard logging')
+                        help='Enable TensorBoard logging.')
     parser.add_argument('--log-freq', 
                         type=int, 
                         default=100,
@@ -36,14 +36,14 @@ def get_args():
                         help='Save frequency. Default to 100')
     parser.add_argument('--log-dir', 
                         default='./logs/',
-                        help='where to save agent logs. Default to ./logs')
+                        help='Where to save agent logs. Default to ./logs/')
     parser.add_argument('--save-dir', 
                         default='./checkpoints/',
-                        help='Where to save agent logs, Default to ./checkpoints/')
+                        help='Where to save agent checkpoints, Default to ./checkpoints/')
     parser.add_argument('--model', 
                         type=str,
                         default='False', 
-                        help='The model to continue training from')
+                        help='The model from which resume training or to evaluate.')
     
     args = parser.parse_args()
 
