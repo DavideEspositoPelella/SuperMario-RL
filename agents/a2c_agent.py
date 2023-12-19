@@ -71,14 +71,15 @@ class A2CAgent(nn.Module):
         self.a2c = A2C(input_dim=self.state_dim, 
                        num_actions=self.num_actions).float().to(self.device)
         # define the optimizers for the actor and critic networks
-        self.optimizer = optim.Adam(self.a2c.parameters(), lr=self.config.lr)
+        self.actor_optim = optim.RMSprop(self.a2c.actor_net.parameters(), lr=self.config.actor_lr)
+        self.critic_optim = optim.RMSprop(self.a2c.critic_net.parameters(), lr=self.config.critic_lr)
         # define the ICM model, the optimizer and the loss functions
         if self.icm:
             self.icm_model = ICMModel(input_dim=self.state_dim, 
                                     num_actions=self.num_actions, 
                                     feature_size=self.config.feature_size, 
                                     device=self.device).float().to(self.device)
-            self.optimizer = torch.optim.Adam(list(self.icm_model.parameters())+ list(self.a2c.parameters()), lr=self.config.lr)
+            self.optimizer = torch.optim.Adam(self.icm_model.parameters(), lr=self.config.lr)
             self.emb_loss_fn = torch.nn.MSELoss()
             self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
             self.forward_loss_fn = torch.nn.MSELoss()
@@ -212,11 +213,16 @@ class A2CAgent(nn.Module):
             rewards = rewards_tensor[:-1] + intrinsic_reward
             # total loss for curiosity is a combination of ddqn loss and inverse/forward losses, weighted by beta and lambda
             loss = self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
-        
-        self.optimizer.zero_grad()
+            self.optimizer.zero_grad()
         # update the actor and critic networks
-        loss.backward()
-        self.optimizer.step()
+        self.actor_optim.zero_grad()
+        self.critic_optim.zero_grad()
+        loss.backward()       
+        self.actor_optim.step()
+        self.critic_optim.step()
+        # update the icm model
+        if self.icm:
+            self.optimizer.step()
         # log the metrics
         if self.tb_writer:
             self.tb_writer.add_scalar("Actor_loss/train", actor_loss.item(), self.step)
@@ -301,9 +307,13 @@ class A2CAgent(nn.Module):
         state = {
             'a2c_model_state_dict': self.a2c.state_dict(),
             'icm_model_state_dict': self.icm_model.state_dict() if self.icm else None,
-            'optimizer_state_dict': self.optimizer.state_dict(),
+            'optimizer_state_dict': self.optimizer.state_dict() if self.icm else None,
+            'actor_optimizer_state_dict': self.actor_optim.state_dict(),
+            'critic_optimizer_state_dict': self.critic_optim.state_dict(),
             'episode': self.episodes,
             'gamma': self.config.gamma,
+            'actor_lr': self.config.actor_lr,
+            'critic_lr': self.config.critic_lr,
             'eta': self.config.eta if self.icm else None,
             'beta_icm': self.config.beta_icm if self.icm else None,
             'lambda_icm': self.config.lambda_icm if self.icm else None,
@@ -335,8 +345,12 @@ class A2CAgent(nn.Module):
             self.a2c.load_state_dict(state['a2c_model_state_dict'])
             if self.icm and 'icm_model_state_dict' in state:
                 self.icm_model.load_state_dict(state['icm_model_state_dict'])
-            self.optimizer.load_state_dict(state['optimizer_state_dict'])
+                self.optimizer.load_state_dict(state['optimizer_state_dict'])
+            self.actor_optim.load_state_dict(state['actor_optimizer_state_dict'])
+            self.critic_optim.load_state_dict(state['critic_optimizer_state_dict'])
             self.episodes = state['episode']
+            self.config.actor_lr = state['actor_lr']
+            self.config.critic_lr = state['critic_lr']
             self.config.eta = state['eta'] if self.icm else None
             self.config.beta_icm = state['beta_icm'] if self.icm else None
             self.config.lambda_icm = state['lambda_icm'] if self.icm else None
