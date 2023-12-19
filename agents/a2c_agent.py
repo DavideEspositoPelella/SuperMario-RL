@@ -179,28 +179,28 @@ class A2CAgent(nn.Module):
         """
         # convert the numpy arrays to tensors and move to the device
         actions_tensor = torch.tensor(actions, dtype=torch.long).to(self.device)
-        returns = torch.tensor(returns[:, None], dtype=torch.float).to(self.device)
-        advantages = torch.tensor(advantages, dtype=torch.float).to(self.device)
-        states = torch.tensor(states, dtype=torch.float).to(self.device)
-        rewards = torch.tensor(rewards, dtype=torch.float).to(self.device)
+        returns_tensor = torch.tensor(returns[:, None], dtype=torch.float).to(self.device)
+        advantages_tensor = torch.tensor(advantages, dtype=torch.float).to(self.device)
+        states_tensor = torch.tensor(states, dtype=torch.float).to(self.device)
+        rewards_tensor = torch.tensor(rewards, dtype=torch.float).to(self.device)
         # compute the action probabilities and the state values
-        action_probs, state_values = self.a2c(states)
+        action_probs, state_values = self.a2c(states_tensor)
         dist = Categorical(logits=action_probs)
         # compute the log probabilities of the actions
         log_probs = dist.log_prob(actions_tensor)
         # actor loss
-        actor_loss = -(log_probs * advantages).mean()
+        actor_loss = -(log_probs * advantages_tensor).mean()
         # critic loss
-        critic_loss = F.mse_loss(state_values, returns)
+        critic_loss = F.mse_loss(state_values, returns_tensor)
         # entropy loss
         entropy_loss = dist.entropy().mean()
         # a2c loss
         loss = actor_loss + 0.5 * critic_loss - self.config.ent_coef * entropy_loss
         # icm loss and intrinsic reward
         if self.icm:
-            init_states = states[:-1]
-            next_states = states[1:]
-            one_hot_action = F.one_hot(actions_tensor[:-1], num_classes=self.num_actions).float()
+            init_states = states_tensor[:-1]
+            next_states = states_tensor[1:]
+            one_hot_action = F.one_hot(actions_tensor[:-1], num_classes=self.num_actions).float().to(self.device)
             # get the next state feature representation, the predicted one and the predicted action
             next_state_feat, pred_next_state_feat, pred_action = self.icm_model(init_states, next_states, one_hot_action)
             # compute the losses for the forward and inverse models
@@ -208,7 +208,7 @@ class A2CAgent(nn.Module):
             forward_loss = self.forward_loss_fn(pred_next_state_feat, next_state_feat)
             # compute the intrinsic reward, logged in tensorboard
             intrinsic_reward = self.config.eta * F.mse_loss(next_state_feat, pred_next_state_feat, reduction='none').mean(-1)
-            rewards = rewards[:-1] + intrinsic_reward
+            rewards = rewards_tensor[:-1] + intrinsic_reward
             # total loss for curiosity is a combination of ddqn loss and inverse/forward losses, weighted by beta and lambda
             loss = self.config.lambda_icm * loss + (1 - self.config.beta) * inverse_loss + self.config.beta * forward_loss
             self.optimizer.zero_grad()
@@ -223,64 +223,79 @@ class A2CAgent(nn.Module):
             self.optimizer.step()
         # log the metrics
         if self.tb_writer:
-            self.tb_writer.add_scalar("Actor_loss/train", actor_loss.item(), self.ep)
-            self.tb_writer.add_scalar("Critic_loss/train", critic_loss.item(), self.ep)
-            self.tb_writer.add_scalar("Entropy_loss/train", entropy_loss.item(), self.ep)
-            self.tb_writer.add_scalar("Total_loss/train", loss.item(), self.ep)
-            self.tb_writer.add_scalar("Advantage/train", advantages.mean().item(), self.ep)
-            self.tb_writer.add_scalar("Rewards/train", rewards.mean(), self.ep)
+            self.tb_writer.add_scalar("Actor_loss/train", actor_loss.item(), self.step)
+            self.tb_writer.add_scalar("Critic_loss/train", critic_loss.item(), self.step)
+            self.tb_writer.add_scalar("Entropy_loss/train", entropy_loss.item(), self.step)
+            self.tb_writer.add_scalar("Total_loss/train", loss.item(), self.step)
+            self.tb_writer.add_scalar("Advantage/train", advantages.mean().item(), self.step)
+            self.tb_writer.add_scalar("Rewards/train", rewards.mean(), self.step)
             if self.icm:
-                self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.ep)
-                self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.ep)
-                self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.ep)
+                self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.step)
+                self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.step)
+                self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.step)
     
     def train(self) -> None:
         """Train the agent for the given number of episodes."""
         print("Start training.")
+        self.step = 0
         for episode in tqdm(range(self.config.episodes)):
-            self.ep = episode
-            # initialize the environment and all the variables for the current episode
-            actions = np.empty((self.config.n_steps,), dtype=np.int)
-            dones = np.empty((self.config.n_steps,), dtype=np.bool)
-            rewards, values = np.empty((2, self.config.n_steps), dtype=np.float)
-            states = np.empty((self.config.n_steps, 4, 42, 42), dtype=np.float)
+            self.episodes = episode
             state, _ = self.env.reset()
-            # Rollout phase
-            for i in range(self.config.n_steps):
-                # store the current state, value and action
-                states[i] = state
-                state_tensor = self.lazy_to_tensor(state)
-                values[i] = self.a2c.critic_net(state_tensor).cpu().detach().numpy()
-                actions[i] = self.act(state)
-                # perform the action and store the reward
-                state, reward, terminated, truncated, _  = self.env.step(actions[i])
-                rewards[i] = reward
-                dones[i] = terminated or truncated
-                if dones[i]:
-                    state, _ = self.env.reset()
-            if dones[-1]:
-                next_value = 0
-            else:
-                state_tensor = self.lazy_to_tensor(state)
-                next_value = self.a2c.critic_net(state_tensor).cpu().detach().numpy()[0]
-            # compute the returns and advantages
-            returns, advantages = self.returns_advantages(rewards, dones, values, next_value)
-            # optimize the model
-            self.optimize_model(states, actions, returns, advantages, rewards)
-            # save the model
-            if episode % self.save_freq == 0:
+            while True:
+                # initialize the environment and all the variables for the current episode
+                actions = np.empty((self.config.n_steps,), dtype=np.int)
+                dones = np.empty((self.config.n_steps,), dtype=np.bool)
+                rewards, values = np.empty((2, self.config.n_steps), dtype=np.float)
+                states = np.empty((self.config.n_steps, 
+                                   self.config.stack, 
+                                   self.config.resize_shape, 
+                                   self.config.resize_shape), dtype=np.float)
+                # rollout phase
+                done_idx = self.config.n_steps - 1
+                for i in range(self.config.n_steps):
+                    # store the current state, value and action
+                    states[i] = state
+                    state_tensor = self.lazy_to_tensor(state)
+                    values[i] = self.a2c.critic_net(state_tensor).cpu().detach().numpy()
+                    actions[i] = self.act(state)
+                    # perform the action and store the reward
+                    state, reward, terminated, truncated, _  = self.env.step(actions[i])
+                    rewards[i] = reward
+                    dones[i] = terminated or truncated
+                    self.step += 1
+                    if dones[i]:
+                        done_idx = i
+                        break
+                if dones[done_idx]:
+                    next_value = [0]
+                    states = states[:done_idx+1]
+                    rewards = rewards[:done_idx+1]
+                    dones = dones[:done_idx+1]
+                    values = values[:done_idx+1]
+                    actions = actions[:done_idx+1]
+                else:
+                    state_tensor = self.lazy_to_tensor(state)
+                    next_value = self.a2c.critic_net(state_tensor).cpu().detach().numpy()[0]
+                # compute the returns and advantages
+                returns, advantages = self.returns_advantages(rewards, dones, values, next_value)
+                # optimize the model
+                self.optimize_model(states, actions, returns, advantages, rewards)
+                # save the model
+                if dones[-1]:
+                    break
+            if self.episodes % self.save_freq == 0:
                 self.save()
     
     def save(self) -> None:
         """Save the model and the configuration settings."""
-        save_path = self.save_dir / f"mario_net_{self.ep}.chkpt"
+        save_path = self.save_dir / f"mario_net_{self.episodes}.chkpt"
         state = {
             'a2c_model_state_dict': self.a2c.state_dict(),
             'icm_model_state_dict': self.icm_model.state_dict() if self.icm else None,
             'optimizer_state_dict': self.optimizer.state_dict() if self.icm else None,
             'actor_optimizer_state_dict': self.actor_optim.state_dict(),
             'critic_optimizer_state_dict': self.critic_optim.state_dict(),
-            'episode': self.ep,
+            'episode': self.episodes,
             'gamma': self.config.gamma,
             'actor_lr': self.config.actor_lr,
             'critic_lr': self.config.critic_lr,
@@ -318,7 +333,7 @@ class A2CAgent(nn.Module):
                 self.optimizer.load_state_dict(state['optimizer_state_dict'])
             self.actor_optim.load_state_dict(state['actor_optimizer_state_dict'])
             self.critic_optim.load_state_dict(state['critic_optimizer_state_dict'])
-            self.ep = state['episode']
+            self.episodes = state['episode']
             self.config.actor_lr = state['actor_lr']
             self.config.critic_lr = state['critic_lr']
             self.config.eta = state['eta'] if self.icm else None

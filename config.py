@@ -58,7 +58,7 @@ class Config:
             - actor_lr (float): Learning rate for the actor (A2C). Default to 0.0001.
             - critic_lr (float): Learning rate for the critic (A2C). Default to 0.0001.
             - ent_coef (float): Entropy coefficient for A2C. Default to 0.01.
-
+            
         """
         # env params
         self.skip_frame = skip_frame

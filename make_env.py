@@ -7,9 +7,6 @@ from nes_py.wrappers import JoypadSpace
 
 import gym_super_mario_bros
 
-
-
-
 def make_env(skip_frame: int=2, 
              stack: int=4, 
              resize_shape: int=42) -> gym.Env:
