@@ -76,10 +76,10 @@ class A2CAgent(nn.Module):
         # define the ICM model, the optimizer and the loss functions
         if self.icm:
             self.icm_model = ICMModel(input_dim=self.state_dim, 
-                                    num_actions=self.num_actions, 
-                                    feature_size=self.config.feature_size, 
-                                    device=self.device).float().to(self.device)
-            self.optimizer = torch.optim.Adam(self.icm_model.parameters(), lr=self.config.lr)
+                                      num_actions=self.num_actions, 
+                                      feature_size=self.config.feature_size, 
+                                      device=self.device).float().to(self.device)
+            self.optimizer = torch.optim.RMSprop(list(self.icm_model.parameters()) + list(self.a2c.parameters()), lr=self.config.lr)
             self.emb_loss_fn = torch.nn.MSELoss()
             self.inverse_loss_fn = torch.nn.CrossEntropyLoss()
             self.forward_loss_fn = torch.nn.MSELoss()
@@ -217,12 +217,16 @@ class A2CAgent(nn.Module):
         # update the actor and critic networks
         self.actor_optim.zero_grad()
         self.critic_optim.zero_grad()
-        loss.backward()       
-        self.actor_optim.step()
-        self.critic_optim.step()
+        loss.backward()               
+        torch.nn.utils.clip_grad_norm_(self.a2c.parameters(), 0.5)
+        if self.icm:
+            torch.nn.utils.clip_grad_norm_(self.icm_model.parameters(), 0.5)
         # update the icm model
         if self.icm:
             self.optimizer.step()
+        else:
+            self.actor_optim.step()
+            self.critic_optim.step()
         # log the metrics
         if self.tb_writer:
             self.tb_writer.add_scalar("Actor_loss/train", actor_loss.item(), self.step)
