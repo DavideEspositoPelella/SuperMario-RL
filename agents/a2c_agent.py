@@ -2,6 +2,7 @@ from tqdm import tqdm
 import numpy as np
 from pathlib import Path
 from typing import Tuple
+from util.util import create_dir, init_tensorboard, close_tb, set_seed
 
 import torch
 import torch.nn as nn
@@ -216,7 +217,8 @@ class A2CAgent(nn.Module):
         # update the actor and critic networks
         self.actor_optim.zero_grad()
         self.critic_optim.zero_grad()
-        loss.backward()        
+        loss.backward()   
+        torch.nn.utils.clip_gradnorm(self.a2c.parameters(), max_norm=0.5)     
         self.actor_optim.step()
         self.critic_optim.step()
         # update the icm model
@@ -230,7 +232,7 @@ class A2CAgent(nn.Module):
             self.tb_writer.add_scalar("Total_loss/train", loss.item(), self.step)
             self.tb_writer.add_scalar("Advantage/train", advantages.mean().item(), self.step)
             self.tb_writer.add_scalar("Rewards/train", rewards.mean(), self.step)
-            self.tb_writer.add_scalar("Total_Reward/train", total_reward, self.episodes)
+            #self.tb_writer.add_scalar("Total_Reward/train", total_reward, self.episodes)
             if self.icm:
                 self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.step)
                 self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.step)
@@ -244,6 +246,7 @@ class A2CAgent(nn.Module):
             self.episodes = episode
             state, _ = self.env.reset()
             total_reward = 0
+
             while True:
                 # initialize the environment and all the variables for the current episode
                 actions = np.empty((self.config.n_steps,), dtype=np.int)
@@ -262,16 +265,16 @@ class A2CAgent(nn.Module):
                     values[i] = self.a2c.critic_net(state_tensor).cpu().detach().numpy()
                     actions[i] = self.act(state)
                     # perform the action and store the reward
-                    state, reward, terminated, truncated, _  = self.env.step(actions[i])
+                    state, reward, terminated, truncated, info  = self.env.step(actions[i])
                     rewards[i] = reward
                     dones[i] = terminated or truncated
                     self.step += 1
                     total_reward += reward
-                    
-                    #print("Step: ", self.step, "Reward: ", reward, '\r', end='')
+
                     if dones[i]:
                         done_idx = i
                         break
+
                 # handle termination before n_steps      
                 if dones[done_idx]: 
                     next_value = [0]
@@ -289,14 +292,19 @@ class A2CAgent(nn.Module):
                 self.optimize_model(states, actions, returns, advantages, rewards, total_reward)
                 # save the model
                 if dones[-1]:
-                    #print("Episode done: ", self.episodes, "Total reward: ", total_reward)
+                    if self.confic.tb:
+                        self.tb_writer.add_scalar("Total_Reward/train", total_reward, self.episodes)
                     break
             if self.episodes % self.save_freq == 0:
                 self.save()
     
-    def save(self) -> None:
+    def save(self,
+             name: str=None) -> None:
         """Save the model and the configuration settings."""
-        save_path = self.save_dir / f"mario_net_{self.episodes}.chkpt"
+        if name:
+            save_path = self.save_dir / f"{name}.chkpt"
+        else:
+            save_path = self.save_dir / f"mario_net_{self.episodes}.chkpt"
         state = {
             'a2c_model_state_dict': self.a2c.state_dict(),
             'icm_model_state_dict': self.icm_model.state_dict() if self.icm else None,
