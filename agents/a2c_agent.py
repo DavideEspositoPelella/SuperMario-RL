@@ -217,8 +217,7 @@ class A2CAgent(nn.Module):
         # update the actor and critic networks
         self.actor_optim.zero_grad()
         self.critic_optim.zero_grad()
-        loss.backward()   
-        torch.nn.utils.clip_gradnorm(self.a2c.parameters(), max_norm=0.5)     
+        loss.backward()       
         self.actor_optim.step()
         self.critic_optim.step()
         # update the icm model
@@ -292,7 +291,7 @@ class A2CAgent(nn.Module):
                 self.optimize_model(states, actions, returns, advantages, rewards, total_reward)
                 # save the model
                 if dones[-1]:
-                    if self.confic.tb:
+                    if self.tb_writer:
                         self.tb_writer.add_scalar("Total_Reward/train", total_reward, self.episodes)
                     break
             if self.episodes % self.save_freq == 0:
