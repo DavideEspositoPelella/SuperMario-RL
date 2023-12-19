@@ -24,8 +24,6 @@ class Config:
                  log_freq: int=100,
                  save_freq: int=100,
                  n_steps: int=2000,
-                 actor_lr: float=0.0001,
-                 critic_lr: float=0.0001,
                  ent_coef: float=0.01) -> None:
         """
         Initializes the configuration settings.
@@ -55,8 +53,6 @@ class Config:
             - log_freq (int): Log frequency. Default to 100.
             - save_freq (int): Save frequency. Default to 100. 
             - n_steps (int): Number of steps for rollouts (A2C). Default to 2000.
-            - actor_lr (float): Learning rate for the actor (A2C). Default to 0.0001.
-            - critic_lr (float): Learning rate for the critic (A2C). Default to 0.0001.
             - ent_coef (float): Entropy coefficient for A2C. Default to 0.01.
             
         """
@@ -90,6 +86,4 @@ class Config:
         self.save_freq = save_freq
         # a2c params
         self.n_steps = n_steps
-        self.actor_lr = actor_lr
-        self.critic_lr = critic_lr
         self.ent_coef = ent_coef
