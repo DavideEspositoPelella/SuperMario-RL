@@ -166,7 +166,8 @@ class A2CAgent(nn.Module):
                        actions: np.ndarray,
                        returns: np.ndarray,
                        advantages: np.ndarray, 
-                       rewards: np.ndarray) -> None:
+                       rewards: np.ndarray,
+                       total_reward: float) -> None:
         """
         Compute the losses and optimize the model.
         
@@ -229,6 +230,7 @@ class A2CAgent(nn.Module):
             self.tb_writer.add_scalar("Total_loss/train", loss.item(), self.step)
             self.tb_writer.add_scalar("Advantage/train", advantages.mean().item(), self.step)
             self.tb_writer.add_scalar("Rewards/train", rewards.mean(), self.step)
+            self.tb_writer.add_scalar("Total_Reward/train", total_reward, self.episodes)
             if self.icm:
                 self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.step)
                 self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.step)
@@ -241,6 +243,7 @@ class A2CAgent(nn.Module):
         for episode in tqdm(range(self.config.episodes)):
             self.episodes = episode
             state, _ = self.env.reset()
+            total_reward = 0
             while True:
                 # initialize the environment and all the variables for the current episode
                 actions = np.empty((self.config.n_steps,), dtype=np.int)
@@ -263,10 +266,14 @@ class A2CAgent(nn.Module):
                     rewards[i] = reward
                     dones[i] = terminated or truncated
                     self.step += 1
+                    total_reward += reward
+                    
+                    #print("Step: ", self.step, "Reward: ", reward, '\r', end='')
                     if dones[i]:
                         done_idx = i
                         break
-                if dones[done_idx]:
+                # handle termination before n_steps      
+                if dones[done_idx]: 
                     next_value = [0]
                     states = states[:done_idx+1]
                     rewards = rewards[:done_idx+1]
@@ -279,9 +286,10 @@ class A2CAgent(nn.Module):
                 # compute the returns and advantages
                 returns, advantages = self.returns_advantages(rewards, dones, values, next_value)
                 # optimize the model
-                self.optimize_model(states, actions, returns, advantages, rewards)
+                self.optimize_model(states, actions, returns, advantages, rewards, total_reward)
                 # save the model
                 if dones[-1]:
+                    #print("Episode done: ", self.episodes, "Total reward: ", total_reward)
                     break
             if self.episodes % self.save_freq == 0:
                 self.save()
