@@ -426,7 +426,7 @@ class A2CAgent(nn.Module):
                               Win! Flag reached at episode: ", self.episodes, "Total reward: ",\
                               total_reward,"\n################################################\n")
                         
-                        if self.ou_noise:
+                        if self.config.ou_noise:
                             self.save(f'win_OU_{self.episodes}')
                         elif self.config.adaptive:
                             self.save(f'win_adaptive_{self.episodes}')
