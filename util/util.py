@@ -69,12 +69,14 @@ def init_tensorboard(log_dir: Path):
     """
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     current_log_dir = log_dir / timestamp
+    # find a free port
+    port = find_free_port()
     # define summary writer and tensorboard process
     tb_writer = SummaryWriter(log_dir=current_log_dir)
-    tb_command = ['tensorboard', '--logdir', log_dir, '--bind_all', '--load_fast=false']
-    tb_process = subprocess.Popen(tb_command   )
+    tb_command = ['tensorboard', '--logdir', log_dir,'--port', str(port), '--bind_all', '--load_fast=false']
+    tb_process = subprocess.Popen(tb_command)
     webbrowser.open("http://localhost:6006")
-    return tb_writer, tb_process, current_log_dir
+    return tb_writer, tb_process, current_log_dir, port
 
 
 def close_tb(tb_writer: SummaryWriter, 

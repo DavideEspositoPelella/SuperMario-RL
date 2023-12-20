@@ -333,6 +333,17 @@ class A2CAgent(nn.Module):
                 self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.step)
                 self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.step)
 
+    def flush(self) -> None:
+        """Flush the tensorboard writer."""
+        if self.tb_writer:
+            if self.icm:
+                self.tb_writer.add_scalar("learning/train", 0, self.episodes)
+            else:
+                self.tb_writer.add_scalar("actor_lr/train", 0, self.episodes)
+                self.tb_writer.add_scalar("critic_lr/train", 0, self.episodes)
+                self.tb_writer.add_scalar("Total_Reward/train", 0, self.episodes)
+                        
+            
     def anneal_learning_rate(self, initial_lr, episode, total_episodes, min_lr=1e-4):
         """
         Anneal the learning rate linearly from the initial learning rate to the minimum learning rate.
@@ -355,6 +366,8 @@ class A2CAgent(nn.Module):
         print("Start training.")
         self.step = 0
         anealing = True
+
+        self.flush()
 
         for episode in tqdm(range(self.config.episodes)):
             self.episodes = episode
