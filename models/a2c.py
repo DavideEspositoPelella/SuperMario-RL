@@ -100,6 +100,11 @@ class Actor(nn.Module):
         x = F.relu(self.fc1(x))
         x = F.softmax(self.fc2(x), dim=-1)
         return x
+    
+    def add_weight_noise(self, scalar=.1):
+        for layer in [self.conv1, self.conv2, self.conv3, self.fc1, self.fc2]:
+            layer.weight.data += torch.randn_like(layer.weight.data) * scalar
+
 
 class Critic(nn.Module):
     def __init__(self, 
@@ -160,5 +165,6 @@ class Critic(nn.Module):
         x = F.relu(self.fc1(x)) 
         x = self.fc2(x) 
         return x
+    
 
 

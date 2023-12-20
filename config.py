@@ -26,7 +26,12 @@ class Config:
                  n_steps: int=2000,
                  actor_lr: float=0.0001,
                  critic_lr: float=0.0001,
-                 ent_coef: float=0.01) -> None:
+                 ent_coef: float=0.01,
+                 ou_noise: bool=True,
+                 adaptive: bool=False,
+                 desired_distance: float=0.7,
+                 scalar: float=0.5,
+                 scalar_decay: float=0.99) -> None:
         """
         Initializes the configuration settings.
 
@@ -58,6 +63,11 @@ class Config:
             - actor_lr (float): Learning rate for the actor (A2C). Default to 0.0001.
             - critic_lr (float): Learning rate for the critic (A2C). Default to 0.0001.
             - ent_coef (float): Entropy coefficient for A2C. Default to 0.01.
+            - ou_noise (bool): Whether to use Ornstein-Uhlenbeck noise for exploration (A2C). Default to True.
+            - adaptive (bool): Whether to use adaptive OU noise (A2C). Default to False.
+            - desired_distance (float): Desired distance for adaptive OU noise (A2C). Default to 0.7.
+            - scalar (float): Scalar for adaptive OU noise (A2C). Default to 0.5.
+            - scalar_decay (float): Decay value for the scalar (A2C). Default to 0.99.
             
         """
         # env params
@@ -93,3 +103,8 @@ class Config:
         self.actor_lr = actor_lr
         self.critic_lr = critic_lr
         self.ent_coef = ent_coef
+        self.ou_noise = ou_noise
+        self.adaptive = adaptive
+        self.desired_distance = 0.7
+        self.scalar = scalar
+        self.scalar_decay = scalar_decay

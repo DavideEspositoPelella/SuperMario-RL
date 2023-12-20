@@ -6,6 +6,7 @@ import webbrowser
 from pathlib import Path
 from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
+import socket
 
 def set_seed(seed: int)-> None:
     """
@@ -49,7 +50,11 @@ def create_dir(base_dir: str,
     directory.mkdir(parents=True, exist_ok=True)
     return directory
 
-
+def find_free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('', 0))
+        return s.getsockname()[1]
+    
 def init_tensorboard(log_dir: Path):
     """
     Initialize TensorBoard.

@@ -19,6 +19,32 @@ from config import Config
 import torch.optim as optim
 from torch.distributions import Categorical
 
+import copy
+
+class OUNoise:
+    """Ornstein-Uhlenbeck process."""
+
+    def __init__(self, size, mu=0., theta=0.15, sigma=0.2):
+        """Initialize parameters and noise process."""
+        self.mu = mu * np.ones(size)
+        self.theta = theta
+        self.sigma = sigma
+        self.reset()
+
+    def reset(self):
+        """Reset the internal state (= noise) to mean (mu)."""
+        self.state = copy.copy(self.mu)
+
+    def sample(self):
+        """Update internal state and return it as a noise sample."""
+        x = self.state
+        dx = self.theta * (self.mu - x) + self.sigma * np.array([np.random.randn() for i in range(len(x))])
+        self.state = x + dx
+        return self.state
+    
+
+
+
 class A2CAgent(nn.Module):
     def __init__(self, 
                  env: gym.Env,
@@ -70,6 +96,21 @@ class A2CAgent(nn.Module):
         # define the actor-critic network
         self.a2c = A2C(input_dim=self.state_dim, 
                        num_actions=self.num_actions).float().to(self.device)
+        
+        if self.config.adaptive:
+            self.a2c_noised = A2C(input_dim=self.state_dim, 
+                                   num_actions=self.num_actions).float().to(self.device)
+            self.a2c_noised.load_state_dict(self.a2c.state_dict().copy())
+            self.actor_noised = self.a2c_noised.actor_net
+            self.scalar = self.config.scalar
+            self.distances = []
+            self.desired_distance = self.config.desired_distance
+            self.scalar_decay = self.config.scalar_decay
+
+   
+        if self.config.ou_noise:
+            self.ou_noise = OUNoise(size=self.num_actions)
+
         # define the optimizers for the actor and critic networks
         self.actor_optim = optim.RMSprop(self.a2c.actor_net.parameters(), lr=self.config.actor_lr)
         self.critic_optim = optim.RMSprop(self.a2c.critic_net.parameters(), lr=self.config.critic_lr)
@@ -121,7 +162,7 @@ class A2CAgent(nn.Module):
     def act(self, 
             state: LazyFrames) -> int:
         """
-        Select an action according to the current policy.
+        Select an action according to the current policy and add noise if specified.
         
         Args:
             - state (LazyFrames): The current state.
@@ -130,9 +171,51 @@ class A2CAgent(nn.Module):
             - action (int): The index of the selected action.
         """
         state = self.lazy_to_tensor(state)
-        action_probs = self.a2c.actor_net(state)
-        dist = Categorical(logits=action_probs)
-        action = dist.sample().item()
+        # noise in weights
+        if self.config.adaptive:
+            with torch.no_grad():
+                # get the action values from the noised actor for comparison
+                '''action = self.actor_regular(state).cpu().data.numpy()'''
+                self.actor_noised.load_state_dict(self.a2c.actor_net.state_dict().copy())
+                # add noise to the copy
+                self.actor_noised.add_weight_noise(self.scalar)
+                # get noised action
+                action_probs_noised = self.actor_noised(state)
+                dist_noised = Categorical(logits=action_probs_noised)
+                action_noised = dist_noised.sample().item()
+
+                action_probs = self.a2c.actor_net(state)
+                dist = Categorical(logits=action_probs)
+                action = dist.sample().item()
+                                
+                # meassure the distance between the actions for noise update
+                distance = np.sqrt(np.mean(np.square(action-action_noised)))
+                
+                # adjust the amount of noise given to the actor_noised
+                if distance > self.desired_distance:
+                    self.scalar *= self.scalar_decay
+                if distance < self.desired_distance:
+                    self.scalar /= self.scalar_decay
+                
+                # set the noised action as action
+                action = action_noised
+
+        # noise on action
+        elif self.config.ou_noise:
+            action_probs = self.a2c.actor_net(state)
+            if self.config.ou_noise:
+                noise = torch.tensor(self.ou_noise.sample(), device=self.device)
+                action_probs += noise
+                #action = np.clip(action + noise, 0, self.num_actions - 1)
+            dist = Categorical(logits=action_probs)
+            action = dist.sample().item()
+
+        # no noise
+        else:
+            action_probs = self.a2c.actor_net(state)
+            dist = Categorical(logits=action_probs)
+            action = dist.sample().item()
+
         return action
     
     def returns_advantages(self, 
@@ -153,13 +236,23 @@ class A2CAgent(nn.Module):
             - returns (np.ndarray): The returns for the current episode.
             - advantages (np.ndarray): The advantages for the current episode.
         """      
-        returns = np.append(np.zeros_like(rewards), next_value, axis=0)
-        # compute the returns
-        for t in reversed(range(rewards.shape[0])):
-            returns[t] = rewards[t] + self.config.gamma * returns[t + 1] * (1 - dones[t])
-        returns = returns[:-1]
-        # compute the advantages
-        advantages = returns - values
+
+
+        gae = 0
+        gae_lambda = 0.95
+        advantages = np.zeros_like(rewards)
+        for t in reversed(range(len(rewards))):
+            # Calculate delta: reward + discount_factor * next_value * (1 - done) - value
+            delta = rewards[t] + self.config.gamma * next_value * (1 - int(dones[t])) - values[t]
+            # Update gae: delta + discount_factor * lambda * gae * (1 - done)
+            gae = delta + self.config.gamma * gae_lambda * gae * (1 - int(dones[t]))
+            # Store advantage
+            advantages[t] = gae
+            # Update next_value to the value of the current state
+            next_value = values[t]
+
+        # The returns are the value estimates plus the advantages
+        returns = advantages + values
         return returns, advantages
     
     def optimize_model(self, 
@@ -235,30 +328,70 @@ class A2CAgent(nn.Module):
             self.tb_writer.add_scalar("Total_loss/train", loss.item(), self.step)
             self.tb_writer.add_scalar("Advantage/train", advantages.mean().item(), self.step)
             self.tb_writer.add_scalar("Rewards/train", rewards.mean(), self.step)
-            #self.tb_writer.add_scalar("Total_Reward/train", total_reward, self.episodes)
             if self.icm:
                 self.tb_writer.add_scalar("Forward_loss/train", forward_loss.item(), self.step)
                 self.tb_writer.add_scalar("Inverse_loss/train", inverse_loss.item(), self.step)
                 self.tb_writer.add_scalar("Intrinsic_reward/train", intrinsic_reward.mean(), self.step)
-    
+
+    def anneal_learning_rate(self, initial_lr, episode, total_episodes, min_lr=1e-4):
+        """
+        Anneal the learning rate linearly from the initial learning rate to the minimum learning rate.
+
+        Args:
+            initial_lr (float): The initial learning rate.
+            episode (int): The current episode number.
+            total_episodes (int): The total number of episodes for training.
+            min_lr (float): The minimum learning rate to anneal to. Default is 1e-4.
+
+        Returns:
+            lr (float): The annealed learning rate.
+        """
+        decay = (initial_lr - min_lr) / total_episodes
+        new_lr = initial_lr - decay * episode
+        return max(new_lr, min_lr)
+
     def train(self) -> None:
         """Train the agent for the given number of episodes."""
         print("Start training.")
         self.step = 0
+        anealing = True
+
         for episode in tqdm(range(self.config.episodes)):
             self.episodes = episode
+
+            if anealing:
+                if self.icm:
+                    # Anneal learning rate for curiosity
+                    new_lr = self.anneal_learning_rate(self.config.lr, episode, self.config.episodes)
+                    for param_group in self.optimizer.param_groups:
+                        param_group['lr'] = new_lr
+                else:
+                    # Anneal learning rate for actor and critic
+                    new_actor_lr = self.anneal_learning_rate(self.config.actor_lr, episode, self.config.episodes)
+                    new_critic_lr = self.anneal_learning_rate(self.config.critic_lr, episode, self.config.episodes)
+                    
+                    # Update the learning rate for the optimizers
+                    for param_group in self.actor_optim.param_groups:
+                        param_group['lr'] = new_actor_lr
+                    for param_group in self.critic_optim.param_groups:
+                        param_group['lr'] = new_critic_lr
+
+            if self.config.ou_noise:
+                self.ou_noise.reset()
+
             state, _ = self.env.reset()
             total_reward = 0
 
             while True:
                 # initialize the environment and all the variables for the current episode
-                actions = np.empty((self.config.n_steps,), dtype=np.int)
-                dones = np.empty((self.config.n_steps,), dtype=np.bool)
-                rewards, values = np.empty((2, self.config.n_steps), dtype=np.float)
+                actions = np.empty((self.config.n_steps,), dtype=int)
+                dones = np.empty((self.config.n_steps,), dtype=bool)
+                rewards = np.empty((self.config.n_steps), dtype=float)
+                values = np.empty((self.config.n_steps), dtype=float)
                 states = np.empty((self.config.n_steps, 
                                    self.config.stack, 
                                    self.config.resize_shape, 
-                                   self.config.resize_shape), dtype=np.float)
+                                   self.config.resize_shape), dtype=float)
                 # rollout phase
                 done_idx = self.config.n_steps - 1
                 for i in range(self.config.n_steps):
@@ -274,13 +407,26 @@ class A2CAgent(nn.Module):
                     self.step += 1
                     total_reward += reward
 
+                    # check if the agent reached the flag and save the model
+                    if info['flag_get']:
+                        print("\n################################################ \n \
+                              Win! Flag reached at episode: ", self.episodes, "Total reward: ",\
+                              total_reward,"\n################################################\n")
+                        
+                        if self.ou_noise:
+                            self.save(f'win_OU_{self.episodes}')
+                        elif self.config.adaptive:
+                            self.save(f'win_adaptive_{self.episodes}')
+                        else:
+                            self.save(f'win_{self.episodes}')
+                    
                     if dones[i]:
                         done_idx = i
                         break
 
                 # handle termination before n_steps      
                 if dones[done_idx]: 
-                    next_value = [0]
+                    next_value = np.zeros(1)
                     states = states[:done_idx+1]
                     rewards = rewards[:done_idx+1]
                     dones = dones[:done_idx+1]
@@ -296,7 +442,13 @@ class A2CAgent(nn.Module):
                 # save the model
                 if dones[-1]:
                     if self.tb_writer:
+                        if self.icm:
+                            self.tb_writer.add_scalar("learning/train", new_lr, self.episodes)
+                        else:
+                            self.tb_writer.add_scalar("actor_lr/train", new_actor_lr, self.episodes)
+                            self.tb_writer.add_scalar("critic_lr/train", new_critic_lr, self.episodes)
                         self.tb_writer.add_scalar("Total_Reward/train", total_reward, self.episodes)
+                        
                     break
             if self.episodes % self.save_freq == 0:
                 self.save()
@@ -373,20 +525,31 @@ class A2CAgent(nn.Module):
         Args:
             - env (gym.Env): The environment.
         """
-        rewards = []
+        winners = []
+        best_reward = 0
+        for seed in tqdm(range(3000)): 
+            set_seed(183)
+            rewards = []
 
-        print(f'\nEvaluating for 10 episodes')
-        print('Algorithm: A2C')
-        for _ in tqdm(range(10)):
-            total_reward = 0
-            done = False
-            state, _ = env.reset()
-            while not done:
-                action = self.act(state)
-                state, reward, terminated, truncated, info = env.step(action)
-                done = terminated or truncated
-                total_reward += reward
+            #print(f'\nEvaluating for 10 episodes')
+            #print('Algorithm: A2C')
+            for _ in range(1):
+                total_reward = 0
+                done = False
+                state, _ = env.reset()
+                while not done:
+                    action = self.act(state)
+                    state, reward, terminated, truncated, info = env.step(action)
+                    done = terminated or truncated
+                    total_reward += reward
 
-            rewards.append(total_reward)
-        print('Mean Reward:', np.mean(rewards))
-        print()
+                rewards.append(total_reward)
+            if info['flag_get']:
+                print("\n################################################ \nWin! Flag reached at seed: ", seed, "\n################################################\n")
+                winners.append(seed)
+            if np.mean(rewards) > best_reward:
+                best_reward = np.mean(rewards)
+                print('New best Mean Reward:', np.mean(rewards), 'Seed:', seed)
+            #print('Mean Reward:', np.mean(rewards))
+            #print()
+        print('Winners:', winners)
