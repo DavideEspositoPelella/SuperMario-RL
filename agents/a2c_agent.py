@@ -96,7 +96,7 @@ class A2CAgent(nn.Module):
         # define the actor-critic network
         self.a2c = A2C(input_dim=self.state_dim, 
                        num_actions=self.num_actions).float().to(self.device)
-        
+        self.anealing = False
         if self.config.adaptive:
             self.a2c_noised = A2C(input_dim=self.state_dim, 
                                    num_actions=self.num_actions).float().to(self.device)
@@ -170,7 +170,14 @@ class A2CAgent(nn.Module):
         Returns:
             - action (int): The index of the selected action.
         """
+
+        #if np.random.rand() < self.config.exploration_rate:
+        #    action_idx = np.random.randint(self.num_actions)
+        
         state = self.lazy_to_tensor(state)
+
+        action_probs = self.a2c.actor_net(state)
+
         # noise in weights
         if self.config.adaptive:
             with torch.no_grad():
@@ -184,7 +191,7 @@ class A2CAgent(nn.Module):
                 dist_noised = Categorical(logits=action_probs_noised)
                 action_noised = dist_noised.sample().item()
 
-                action_probs = self.a2c.actor_net(state)
+                #action_probs = self.a2c.actor_net(state)
                 dist = Categorical(logits=action_probs)
                 action = dist.sample().item()
                                 
@@ -202,11 +209,10 @@ class A2CAgent(nn.Module):
 
         # noise on action
         elif self.config.ou_noise:
-            action_probs = self.a2c.actor_net(state)
-            if self.config.ou_noise:
-                noise = torch.tensor(self.ou_noise.sample(), device=self.device)
-                action_probs += noise
-                #action = np.clip(action + noise, 0, self.num_actions - 1)
+            #action_probs = self.a2c.actor_net(state)
+            noise = torch.tensor(self.ou_noise.sample(), device=self.device)
+            action_probs += noise
+            #action = np.clip(action + noise, 0, self.num_actions - 1)
             dist = Categorical(logits=action_probs)
             action = dist.sample().item()
 
@@ -336,8 +342,17 @@ class A2CAgent(nn.Module):
     def flush(self) -> None:
         """Flush the tensorboard writer."""
         if self.tb_writer:
+            self.tb_writer.add_scalar("Actor_loss/train", 0, self.step)
+            self.tb_writer.add_scalar("Critic_loss/train", 0, self.step)
+            self.tb_writer.add_scalar("Entropy_loss/train", 0, self.step)
+            self.tb_writer.add_scalar("Total_loss/train", 0, self.step)
+            self.tb_writer.add_scalar("Advantage/train", 0, self.step)
+            self.tb_writer.add_scalar("Rewards/train", 0, self.step)
             if self.icm:
                 self.tb_writer.add_scalar("learning/train", 0, self.episodes)
+                self.tb_writer.add_scalar("Forward_loss/train", 0, self.step)
+                self.tb_writer.add_scalar("Inverse_loss/train", 0, self.step)
+                self.tb_writer.add_scalar("Intrinsic_reward/train", 0, self.step)
             else:
                 self.tb_writer.add_scalar("actor_lr/train", 0, self.episodes)
                 self.tb_writer.add_scalar("critic_lr/train", 0, self.episodes)
@@ -365,14 +380,13 @@ class A2CAgent(nn.Module):
         """Train the agent for the given number of episodes."""
         print("Start training.")
         self.step = 0
-        anealing = True
 
-        self.flush()
+        #self.flush()
 
         for episode in tqdm(range(self.config.episodes)):
             self.episodes = episode
 
-            if anealing:
+            if self.anealing:
                 if self.icm:
                     # Anneal learning rate for curiosity
                     new_lr = self.anneal_learning_rate(self.config.lr, episode, self.config.episodes)
@@ -456,7 +470,7 @@ class A2CAgent(nn.Module):
                 if dones[-1]:
                     if self.tb_writer:
                         if self.icm:
-                            self.tb_writer.add_scalar("learning/train", new_lr, self.episodes)
+                            self.tb_writer.add_scalar("lr_unique/train", new_lr, self.episodes)
                         else:
                             self.tb_writer.add_scalar("actor_lr/train", new_actor_lr, self.episodes)
                             self.tb_writer.add_scalar("critic_lr/train", new_critic_lr, self.episodes)
@@ -470,9 +484,13 @@ class A2CAgent(nn.Module):
              name: str=None) -> None:
         """Save the model and the configuration settings."""
         if name:
-            save_path = self.save_dir / f"{name}.chkpt"
+            save_path = self.save_dir / f"{name}4s_.chkpt"
+        elif self.config.ou_noise:
+            save_path = self.save_dir / f"mario_net_4s_{self.episodes}_OU.chkpt"
+        elif self.config.adaptive:
+            save_path = self.save_dir / f"mario_net_4s_{self.episodes}_adaptive.chkpt"
         else:
-            save_path = self.save_dir / f"mario_net_{self.episodes}.chkpt"
+            save_path = self.save_dir / f"mario_net_4s_{self.episodes}.chkpt"
         state = {
             'a2c_model_state_dict': self.a2c.state_dict(),
             'icm_model_state_dict': self.icm_model.state_dict() if self.icm else None,
@@ -540,8 +558,8 @@ class A2CAgent(nn.Module):
         """
         winners = []
         best_reward = 0
-        for seed in tqdm(range(3000)): 
-            set_seed(183)
+        for seed in tqdm(range(10)): 
+            set_seed(2023)
             rewards = []
 
             #print(f'\nEvaluating for 10 episodes')

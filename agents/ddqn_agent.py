@@ -2,6 +2,8 @@ from tqdm import tqdm
 import numpy as np
 from pathlib import Path
 from typing import Tuple 
+import cv2
+import time
 
 import torch
 import torch.nn as nn
@@ -17,6 +19,8 @@ from gym.wrappers import LazyFrames
 from models.icm import ICMModel
 from models.ddqn import DDQNetwork
 from config import Config
+
+from util.util import set_seed
 
 
 
@@ -401,21 +405,28 @@ class DDQNAgent(nn.Module):
         """
         Evaluate the agent for 10 episodes.
         """
+        seed = 1871
+        set_seed(seed)
+
         rewards = []
-        print(f'\nEvaluating for 10 episodes')
+
+        print(f'\n###########\nEvaluating for 5 episodes')
         print('Algorithm: {}'.format('DDQN_PER' if self.prioritized else 'DDQN'))
-        for _ in tqdm(range(10)):
+        for _ in tqdm(range(5)):
             total_reward = 0
             done = False
             state, _ = env.reset()
             while not done:
                 action = self.act(state)
-                state, reward, terminated, truncated, _ = env.step(action)
+                state, reward, terminated, truncated, info = env.step(action)
                 done = terminated or truncated
                 total_reward += reward
                 if terminated or truncated:
+                    if info['flag_get']:
+                        print('\nLevel complete!!!')
                     break
+
             rewards.append(total_reward)
+
         print('Mean Reward:', np.mean(rewards))
         print()
-
