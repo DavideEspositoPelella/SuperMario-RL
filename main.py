@@ -145,12 +145,13 @@ def main():
                         feature_size=288, eta=1.0, beta_icm=0.2, lambda_icm=0.1,
                         log_freq=args.log_freq, save_freq=args.save_freq)
     elif args.algorithm == 'a2c':
-        config = Config(skip_frame = 2, stack = 4, resize_shape = 42, n_steps=5, lr=0.001,
-                        gamma=0.99, actor_lr=0.001, critic_lr=0.0005, ent_coef=0.01, episodes=args.episodes,
+        config = Config(skip_frame = 4, stack = 4, resize_shape = 42, n_steps=5, lr=0.001,
+                        gamma=0.99, actor_lr=0.001, critic_lr=0.0005, ent_coef=0.1, episodes=args.episodes,
                         eta=1.0, beta_icm=0.2, lambda_icm=0.1, ou_noise = False, adaptive = True,
                         desired_distance=0.7, scalar=0.5, scalar_decay=0.99,
                         log_freq=args.log_freq, save_freq=args.save_freq)
-
+                        # rosa adaptive
+                        # celeste OU noise
     
     # create the environment     
     env = make_env.make_env(skip_frame=config.skip_frame, 
