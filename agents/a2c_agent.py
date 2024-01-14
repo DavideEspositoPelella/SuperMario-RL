@@ -242,8 +242,6 @@ class A2CAgent(nn.Module):
             - returns (np.ndarray): The returns for the current episode.
             - advantages (np.ndarray): The advantages for the current episode.
         """      
-
-
         gae = 0
         gae_lambda = 0.95
         advantages = np.zeros_like(rewards)
@@ -389,9 +387,9 @@ class A2CAgent(nn.Module):
             if self.anealing:
                 if self.icm:
                     # Anneal learning rate for curiosity
-                    new_lr = self.anneal_learning_rate(self.config.lr, episode, self.config.episodes)
+                    self.config.lr = self.anneal_learning_rate(self.config.lr, episode, self.config.episodes)
                     for param_group in self.optimizer.param_groups:
-                        param_group['lr'] = new_lr
+                        param_group['lr'] = self.config.lr
                 else:
                     # Anneal learning rate for actor and critic
                     new_actor_lr = self.anneal_learning_rate(self.config.actor_lr, episode, self.config.episodes)
@@ -470,7 +468,7 @@ class A2CAgent(nn.Module):
                 if dones[-1]:
                     if self.tb_writer:
                         if self.icm:
-                            self.tb_writer.add_scalar("lr_unique/train", new_lr, self.episodes)
+                            self.tb_writer.add_scalar("lr_unique/train", self.config.lr, self.episodes)
                         else:
                             self.tb_writer.add_scalar("actor_lr/train", new_actor_lr, self.episodes)
                             self.tb_writer.add_scalar("critic_lr/train", new_critic_lr, self.episodes)
