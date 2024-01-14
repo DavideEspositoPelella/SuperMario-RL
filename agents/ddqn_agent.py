@@ -1,6 +1,8 @@
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
+import pathlib
+import platform
 from typing import Tuple 
 import cv2
 import time
@@ -348,6 +350,9 @@ class DDQNAgent(nn.Module):
 
     def load(self, model_path: str=None) -> None:
         """Load the agent's state from a checkpoint."""
+        if platform.system() != 'Windows':
+            original_windows_path = pathlib.WindowsPath
+            pathlib.WindowsPath = pathlib.PosixPath
         if model_path == 'False':
             print("No model specified")
             raise ValueError(f"{model_path} does not exist")
