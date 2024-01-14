@@ -171,11 +171,7 @@ class A2CAgent(nn.Module):
             - action (int): The index of the selected action.
         """
 
-        #if np.random.rand() < self.config.exploration_rate:
-        #    action_idx = np.random.randint(self.num_actions)
-        
         state = self.lazy_to_tensor(state)
-
         action_probs = self.a2c.actor_net(state)
 
         # noise in weights
@@ -554,31 +550,27 @@ class A2CAgent(nn.Module):
         Args:
             - env (gym.Env): The environment.
         """
-        winners = []
-        best_reward = 0
-        for seed in tqdm(range(10)): 
-            set_seed(2023)
-            rewards = []
+        win = 0
+        rewards = []
 
-            #print(f'\nEvaluating for 10 episodes')
-            #print('Algorithm: A2C')
-            for _ in range(1):
-                total_reward = 0
-                done = False
-                state, _ = env.reset()
-                while not done:
-                    action = self.act(state)
-                    state, reward, terminated, truncated, info = env.step(action)
-                    done = terminated or truncated
-                    total_reward += reward
+        print(f'\n###########\nEvaluating for 5 episodes')
+        print('Algorithm: A2C')
+        for _ in range(5):
+            total_reward = 0
+            done = False
+            state, _ = env.reset()
+            while not done:
+                action = self.act(state)
+                state, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+                total_reward += reward
+                if terminated or truncated:
+                    if info['flag_get']:
+                        print('\nLevel complete!!!')
+                        win += 1
+                    break
 
-                rewards.append(total_reward)
-            if info['flag_get']:
-                print("\n################################################ \nWin! Flag reached at seed: ", seed, "\n################################################\n")
-                winners.append(seed)
-            if np.mean(rewards) > best_reward:
-                best_reward = np.mean(rewards)
-                print('New best Mean Reward:', np.mean(rewards), 'Seed:', seed)
-            #print('Mean Reward:', np.mean(rewards))
-            #print()
-        print('Winners:', winners)
+            rewards.append(total_reward)
+
+        print(f'Average reward: {np.mean(rewards)}')
+        print('Win:', win)

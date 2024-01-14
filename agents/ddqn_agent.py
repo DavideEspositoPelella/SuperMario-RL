@@ -409,7 +409,7 @@ class DDQNAgent(nn.Module):
         set_seed(seed)
 
         rewards = []
-
+        win = 0
         print(f'\n###########\nEvaluating for 5 episodes')
         print('Algorithm: {}'.format('DDQN_PER' if self.prioritized else 'DDQN'))
         for _ in tqdm(range(5)):
@@ -424,9 +424,10 @@ class DDQNAgent(nn.Module):
                 if terminated or truncated:
                     if info['flag_get']:
                         print('\nLevel complete!!!')
+                        win += 1
                     break
 
             rewards.append(total_reward)
 
         print('Mean Reward:', np.mean(rewards))
-        print()
+        print('Win: ', win)
