@@ -1,6 +1,8 @@
 from tqdm import tqdm
 import numpy as np
 from pathlib import Path
+import pathlib
+import platform
 from typing import Tuple
 from util.util import create_dir, init_tensorboard, close_tb, set_seed
 
@@ -514,6 +516,9 @@ class A2CAgent(nn.Module):
         Args:
             - model_path (str): The path to the checkpoint.
         """
+        if platform.system() != 'Windows':
+            original_windows_path = pathlib.WindowsPath
+            pathlib.WindowsPath = pathlib.PosixPath
         if model_path == 'False':
             print("No model specified")
             raise ValueError(f"{model_path} does not exist")
