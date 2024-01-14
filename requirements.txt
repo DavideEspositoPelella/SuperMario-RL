@@ -1,4 +1,4 @@
-tensorboardX
+tensorboard
 nes-py
 pygame
 wheel
