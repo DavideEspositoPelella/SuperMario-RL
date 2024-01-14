@@ -20,6 +20,12 @@ def get_args():
     parser.add_argument('--icm', 
                         action='store_true',
                         help='Include ICM (Intrinsic Curiosity Module) in training/evaluation.')
+    parser.add_argument('--adaptive', 
+                        action='store_true',
+                        help='Use adaptive exploration.')
+    parser.add_argument('--ou-noise',
+                        action='store_true',
+                        help='Use Ornstein-Uhlenbeck noise.')
     parser.add_argument('--tb', 
                         action='store_true', 
                         help='Enable TensorBoard logging.')
