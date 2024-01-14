@@ -1,4 +1,5 @@
 tensorboard
+opencv-python
 nes-py
 pygame
 wheel
