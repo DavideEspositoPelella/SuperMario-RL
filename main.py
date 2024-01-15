@@ -150,8 +150,7 @@ def main():
                         eta=1.0, beta_icm=0.2, lambda_icm=0.1, ou_noise=args.ou_noise, adaptive=args.adaptive,
                         desired_distance=0.7, scalar=0.5, scalar_decay=0.99,
                         log_freq=args.log_freq, save_freq=args.save_freq)
-                        # rosa adaptive
-                        # celeste OU noise
+
     
     # create the environment     
     env = make_env.make_env(skip_frame=config.skip_frame, 

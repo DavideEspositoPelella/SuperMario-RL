@@ -22,9 +22,11 @@ def get_args():
                         help='Include ICM (Intrinsic Curiosity Module) in training/evaluation.')
     parser.add_argument('--adaptive', 
                         action='store_true',
+                        default=False,
                         help='Use adaptive exploration.')
     parser.add_argument('--ou-noise',
                         action='store_true',
+                        default=False,
                         help='Use Ornstein-Uhlenbeck noise.')
     parser.add_argument('--tb', 
                         action='store_true', 

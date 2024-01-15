@@ -519,6 +519,10 @@ class A2CAgent(nn.Module):
         if platform.system() != 'Windows':
             original_windows_path = pathlib.WindowsPath
             pathlib.WindowsPath = pathlib.PosixPath
+        else:
+            original_posix_path = pathlib.PosixPath
+            pathlib.PosixPath = pathlib.WindowsPath
+
         if model_path == 'False':
             print("No model specified")
             raise ValueError(f"{model_path} does not exist")
