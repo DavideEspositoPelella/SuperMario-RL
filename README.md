@@ -80,7 +80,7 @@ python3 main.py -t
 
 2. Run training with a specific algorithm and number of episodes (and TensorBoard logging)
 ```bash
-python3 main.py -t --episodes 5000 --algorithm a2c --icm --tb
+python3 main.py -t --episodes 25000 --algorithm a2c --icm --tb
 ```
 
 3. Run evaluation
@@ -88,6 +88,11 @@ python3 main.py -t --episodes 5000 --algorithm a2c --icm --tb
 ```bash
 python3 main.py -e --algorithm a2c --icm --model mario_net.chkpt
 ```
+
+## Win model
+```bash
+python3 main.py -e --algorithm ddqn --icm --model mario_net.chkpt
+``` 
 
 ## Contacts
 
