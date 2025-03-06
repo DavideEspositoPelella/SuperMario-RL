@@ -92,7 +92,13 @@ python3 main.py -e --algorithm a2c --icm --model mario_net.chkpt
 ## Win model
 ```bash
 python3 main.py -e --algorithm ddqn --icm --model mario_net.chkpt
-``` 
+```
+![Super Mario RL](demo/mario.gif)
+
+## Experiments on Level 2
+<div style="display: flex; justify-content: space-around; align-items: center;"> <img src="demo/lv2_go_up.gif" alt="Lv2 go up" style="width: 32%;"> <img src="demo/lv2_stuck.gif" alt="LV2 stuck" style="width: 32%;"> <img src="demo/lv2_sfida.gif" alt="Lv2 challenge" style="width: 32%;"> </div>
+
+![Super Mario RL](demo/lv2_good.gif)
 
 ## Contacts
 
