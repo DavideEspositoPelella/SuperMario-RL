@@ -99,11 +99,6 @@ python3 main.py -e --algorithm ddqn --icm --model mario_net.chkpt
 <div style="display: flex; justify-content: space-around; align-items: center;"> <img src="demo/lv2_go_up.gif" alt="Lv2 go up" style="width: 32%;"> <img src="demo/lv2_stuck.gif" alt="LV2 stuck" style="width: 32%;"> <img src="demo/lv2_sfida.gif" alt="Lv2 challenge" style="width: 32%;"> <img src="demo/lv2_good.gif" alt="Lv2 good" style="width: 32%;"> </div>
 
 
-
-
-
-![Super Mario RL](demo/lv2_good.gif)
-
 ## Contacts
 
 - **Davide Esposito Pelella:** [Davide Esposito Pelella](https://github.com/DavideEspositoPelella)
