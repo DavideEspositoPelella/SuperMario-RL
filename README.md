@@ -1,6 +1,6 @@
 # **Super Mario RL Project**
 
-![Super Mario RL](images/mario.gif)
+![Super Mario RL](demo/mario.gif)
 
 ## **Overview**
 
